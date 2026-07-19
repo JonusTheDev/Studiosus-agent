@@ -231,6 +231,25 @@ def test_a_users_own_measurement_wins_over_the_one_we_shipped(tmp_path, monkeypa
     assert dyno.load_profile("m")["whose"] == "theirs"
 
 
+def test_a_choice_overrides_what_the_bench_recommends():
+    # The bench measures throughput alone. A person may weigh room-to-think
+    # against it, as we did taking 64K where 32K measured faster.
+    profile = {"model": "m", "chosen_num_ctx": 65536,
+               "power": {"recommended_num_ctx": 32768}}
+    assert dyno.operating_num_ctx(profile) == 65536
+
+
+def test_without_a_choice_the_recommendation_stands():
+    profile = {"model": "m", "power": {"recommended_num_ctx": 32768}}
+    assert dyno.operating_num_ctx(profile) == 32768
+
+
+@pytest.mark.parametrize("profile", [None, {}, {"model": "m"}, {"model": "m", "power": {}}])
+def test_no_measurement_and_no_choice_is_no_opinion(profile):
+    # None must read as "nobody has an opinion", never as a silent default.
+    assert dyno.operating_num_ctx(profile) is None
+
+
 def test_an_unmeasured_model_has_no_profile():
     assert dyno.load_profile("never-measured:v1") is None
 

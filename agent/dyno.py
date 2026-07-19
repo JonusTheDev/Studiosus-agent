@@ -345,6 +345,25 @@ def check_plan(profile: dict, num_ctx: int,
 # --- profiles ------------------------------------------------------------
 
 
+def operating_num_ctx(profile: Optional[dict]) -> Optional[int]:
+    """The context to actually run at.
+
+    The bench *proposes* (``power.recommended_num_ctx``); a human *chooses*
+    (``chosen_num_ctx``).  A choice always wins, because the bench measures
+    only throughput and a person may reasonably weigh room-to-think against
+    it — as we did, taking 64K on a card where 32K measured faster.
+
+    Returns None when the model has never been measured and nobody has
+    chosen, which callers must read as "no opinion", never as a default.
+    """
+    if not profile:
+        return None
+    chosen = profile.get("chosen_num_ctx")
+    if chosen:
+        return int(chosen)
+    return (profile.get("power") or {}).get("recommended_num_ctx")
+
+
 def profile_slug(model: str) -> str:
     """Filename-safe name for a model tag (``qwen3.6:latest`` → ``qwen3.6-latest``)."""
     text = "".join(c.lower() if (c.isalnum() or c == ".") else "-" for c in str(model))
@@ -525,6 +544,11 @@ def _main(argv: Optional[list[str]] = None) -> int:
                         help="context points to sweep")
     parser.add_argument("--repeats", type=int, default=1,
                         help="counted rolls per point; >=2 for a curve meant to decide anything")
+    parser.add_argument("--choose", type=int, default=None, metavar="N",
+                        help="run at this context regardless of what the bench "
+                             "recommends, and record the choice")
+    parser.add_argument("--why", default="", metavar="TEXT",
+                        help="the reason for --choose, recorded beside it")
     parser.add_argument("--warmup", type=int, default=1,
                         help="discarded rolls before the counted ones (default 1); "
                              "the first roll after a cleared field runs cold")
@@ -581,11 +605,26 @@ def _main(argv: Optional[list[str]] = None) -> int:
         args.model, announce, ctx_points=args.ctx, host=host, gpu=gpu,
         server_env=env, repeats=args.repeats, warmup=args.warmup,
     )
+    # A human's choice outlives any single measurement: re-running the bench
+    # must not silently revert an operating context somebody settled on.
+    existing = load_profile(args.model) or {}
+    if args.choose:
+        profile["chosen_num_ctx"] = args.choose
+        if args.why:
+            profile["chosen_because"] = args.why
+    elif existing.get("chosen_num_ctx"):
+        profile["chosen_num_ctx"] = existing["chosen_num_ctx"]
+        if existing.get("chosen_because"):
+            profile["chosen_because"] = existing["chosen_because"]
+
     power = profile["power"]
     path = save_profile(profile, SEEDED_PROFILE_DIR if args.seed else None)
 
     print(f"\nrecommended num_ctx: {power['recommended_num_ctx']} "
           f"at {power['recommended_tok_s']} tok/s")
+    if profile.get("chosen_num_ctx"):
+        print(f"chosen num_ctx: {profile['chosen_num_ctx']} (a choice overrides "
+              f"the recommendation)")
     if not power["recommended_in_band"]:
         print(f"  NOT in band (<{int(MIN_GPU_FRAC * 100)}% resident) - chosen on "
               f"measured speed, not residence. This model spills on this card.")

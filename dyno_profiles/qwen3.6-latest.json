@@ -1,5 +1,7 @@
 {
   "model": "qwen3.6:latest",
+  "chosen_num_ctx": 65536,
+  "chosen_because": "The bench recommends 32768 (50.4 vs 32.7 tok/s), but the two ranges overlap and the cost of 64K is mostly prefill - paid once per turn - while the room to think is paid back every turn. Chosen deliberately over the recommendation; the curve below is unedited.",
   "power": {
     "dyno_version": 1,
     "date": "2026-07-18",
