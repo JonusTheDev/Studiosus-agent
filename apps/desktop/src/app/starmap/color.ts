@@ -105,6 +105,14 @@ export function memoryInkFor(primary: Rgb, bg: Rgb): Rgb {
   return mixRgb(complementaryInk(primary), bg, 0.45)
 }
 
+// Lesson ink: a third hue rotation so distilled experience reads as its own
+// family — apart from both the skills it informs and the memories it grew from.
+export function lessonInkFor(primary: Rgb, bg: Rgb): Rgb {
+  const [h, s, l] = rgbToHsl(primary)
+
+  return mixRgb(hslToRgb(h + 80, Math.max(s, 0.5), clamp(l, 0.5, 0.7)), bg, 0.35)
+}
+
 // Resolve the theme-derived palette once per theme change — the resolveRgb probe
 // does a getImageData readback, so this stays out of the per-frame path. Node
 // groups borrow restrained tint from the theme; structure stays foreground ink.
@@ -131,6 +139,7 @@ export function computePalette(canvas: HTMLCanvasElement): Palette {
     chipBg: darkTheme ? 'rgba(0,0,0,0.72)' : 'rgba(255,255,255,0.85)',
     darkTheme,
     inkInv: darkTheme ? 'rgba(0,0,0,1)' : 'rgba(255,255,255,1)',
+    lessonInk: lessonInkFor(primary, bg),
     memoryInk: memoryInkFor(primary, bg),
     primary,
     skillInk: mixRgb(primary, base, darkTheme ? 0.12 : 0.18)

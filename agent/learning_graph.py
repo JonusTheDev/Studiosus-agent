@@ -306,6 +306,62 @@ def build_learning_graph() -> dict[str, Any]:
             }
         )
 
+    # Chronicle lessons — the Studiosus heart's distilled experience — as
+    # first-class nodes beside skills and memories.  Lessons born of the same
+    # episode are linked (they were learned together), and a lesson links to
+    # any skill or memory node whose label shares a tag/keyword, so the graph
+    # answers "what has it actually learned?" rather than only "what does it
+    # store?".  Absence of the chronicle (flag off, nothing shelved yet) adds
+    # nothing and costs nothing.
+    lesson_cards: list[dict[str, Any]] = []
+    try:
+        from agent.chronicle import entries as _lesson_entries, reinforcement as _lesson_counts
+
+        counts = _lesson_counts()
+        by_episode: dict[str, list[str]] = {}
+        for lesson in _lesson_entries():
+            node_id = f"lesson:{lesson['id']}"
+            words = {str(t).lower() for t in lesson.get("tags", [])} | {
+                str(k).lower() for k in lesson.get("keywords", [])
+            }
+            graph_nodes.append(
+                {
+                    "id": node_id,
+                    "label": lesson.get("title") or "lesson",
+                    "kind": "lesson",
+                    "timestamp": _lesson_timestamp(lesson.get("created")),
+                    "category": "lesson",
+                    "useCount": counts.get(lesson.get("id", ""), 0),
+                    "state": "active",
+                    "createdBy": "reflection",
+                    "pinned": False,
+                }
+            )
+            lesson_cards.append(
+                {
+                    "id": node_id,
+                    "title": lesson.get("title") or "lesson",
+                    "text": lesson.get("text", ""),
+                    "tags": lesson.get("tags", []),
+                    "sourceEpisode": lesson.get("source_episode"),
+                    "sourceOutcome": lesson.get("source_outcome"),
+                    "reinforced": counts.get(lesson.get("id", ""), 0),
+                }
+            )
+            by_episode.setdefault(lesson.get("source_episode") or "", []).append(node_id)
+            for node in graph_nodes:
+                if node["kind"] in ("skill", "memory"):
+                    label_words = set(re.findall(r"[a-z0-9_]+", str(node["label"]).lower()))
+                    if words & label_words:
+                        edges.append((node_id, node["id"]))
+        for siblings in by_episode.values():
+            for a, b in zip(siblings, siblings[1:]):
+                edges.append((a, b))
+        if lesson_cards:
+            clusters["lesson"] = len(lesson_cards)
+    except Exception:
+        pass  # the graph must render for users who have no chronicle at all
+
     return {
         "nodes": graph_nodes,
         "edges": [{"source": a, "target": b} for a, b in edges],
@@ -314,13 +370,26 @@ def build_learning_graph() -> dict[str, Any]:
             for c, n in sorted(clusters.items(), key=lambda kv: -kv[1])
         ],
         "memory": memory_cards,
+        "lessons": lesson_cards,
         "stats": {
             **density_stats(learned_skills, skill_edges),
             "memory_nodes": len(memory_cards),
             "memory_skill_edges": len(memory_edges),
             "learned_skills": len(learned_skills),
+            "lesson_nodes": len(lesson_cards),
         },
     }
+
+
+def _lesson_timestamp(created: Any) -> Optional[int]:
+    """Chronicle stamps are ``YYYYMMDD-HHMMSS-mmm`` (the Soul's clock); the
+    graph wants epoch seconds.  A stamp we cannot parse yields None, which the
+    timeline already treats as undated."""
+    try:
+        return int(datetime.strptime(str(created)[:15], "%Y%m%d-%H%M%S")
+                   .replace(tzinfo=timezone.utc).timestamp())
+    except (ValueError, TypeError):
+        return None
 
 
 if __name__ == "__main__":

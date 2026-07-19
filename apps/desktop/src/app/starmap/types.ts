@@ -66,6 +66,7 @@ export interface Palette {
   chipBg: string
   darkTheme: boolean
   inkInv: string
+  lessonInk: Rgb
   memoryInk: Rgb
   primary: Rgb
   skillInk: Rgb

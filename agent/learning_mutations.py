@@ -24,7 +24,39 @@ _MEMORY_FILES = {"memory": "MEMORY.md", "profile": "USER.md"}
 
 
 def parse_node_kind(node_id: str) -> str:
-    return "memory" if node_id.startswith("memory:") else "skill"
+    if node_id.startswith("memory:"):
+        return "memory"
+    if node_id.startswith("lesson:"):
+        return "lesson"
+    return "skill"
+
+
+def _lesson_detail(node_id: str) -> dict[str, Any]:
+    """A lesson's full card, read-only.
+
+    Lessons are the Chronicle's distilled experience; they are earned, not
+    authored, so the star map may read them but neither edit nor delete them —
+    consolidation (with its reinforced-never-shed covenant) is the only door
+    out, and it is not this surface.
+    """
+    from agent.chronicle import entries, reinforcement
+
+    lesson_id = node_id[len("lesson:"):]
+    for lesson in entries():
+        if lesson.get("id") == lesson_id:
+            counts = reinforcement()
+            lines = [
+                lesson.get("text", ""),
+                "",
+                f"Tags: {', '.join(lesson.get('tags', [])) or '-'}",
+                f"Reinforced: {counts.get(lesson_id, 0)}x",
+                f"From episode: {lesson.get('source_episode', '?')} "
+                f"({lesson.get('source_outcome', '?')})",
+            ]
+            return {"ok": True, "kind": "lesson",
+                    "label": lesson.get("title", "lesson"),
+                    "content": "\n".join(lines)}
+    return {"ok": False, "message": f"no lesson {lesson_id!r}"}
 
 
 def _memories_dir() -> Path:
@@ -93,6 +125,8 @@ def node_detail(node_id: str) -> dict[str, Any]:
 
 
 def _node_detail(node_id: str) -> dict[str, Any]:
+    if parse_node_kind(node_id) == "lesson":
+        return _lesson_detail(node_id)
     if parse_node_kind(node_id) == "memory":
         source, gidx = _parse_memory_id(node_id)
         _, chunks, local = _locate_memory(source, gidx)
@@ -123,7 +157,11 @@ def _node_detail(node_id: str) -> dict[str, Any]:
 
 def delete_node(node_id: str) -> dict[str, Any]:
     try:
-        return _delete_memory(node_id) if parse_node_kind(node_id) == "memory" else _delete_skill(node_id)
+        kind = parse_node_kind(node_id)
+        if kind == "lesson":
+            return {"ok": False, "message": "lessons are earned, not managed - "
+                    "consolidation is the only door out, and it archives"}
+        return _delete_memory(node_id) if kind == "memory" else _delete_skill(node_id)
     except (ValueError, IndexError) as exc:
         return {"ok": False, "message": str(exc)}
 
@@ -156,7 +194,10 @@ def _delete_memory(node_id: str) -> dict[str, Any]:
 
 def edit_node(node_id: str, content: str) -> dict[str, Any]:
     try:
-        return _edit_memory(node_id, content) if parse_node_kind(node_id) == "memory" else _edit_skill(node_id, content)
+        kind = parse_node_kind(node_id)
+        if kind == "lesson":
+            return {"ok": False, "message": "lessons are read-only: the past keeps its one meaning"}
+        return _edit_memory(node_id, content) if kind == "memory" else _edit_skill(node_id, content)
     except (ValueError, IndexError) as exc:
         return {"ok": False, "message": str(exc)}
 

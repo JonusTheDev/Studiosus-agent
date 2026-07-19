@@ -717,7 +717,7 @@ export function getStarmapGraph(): Promise<StarmapGraph> {
 
 export interface LearningNodeDetail {
   content: string
-  kind: 'memory' | 'skill'
+  kind: 'lesson' | 'memory' | 'skill'
   label: string
   ok: boolean
 }

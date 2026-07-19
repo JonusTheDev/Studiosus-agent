@@ -438,11 +438,11 @@ export interface UsageStats {
   total: number
 }
 
-/** One graph node in the star map (learned skill or memory chunk). */
+/** One graph node in the star map (learned skill, memory chunk, or chronicle lesson). */
 export interface StarmapNode {
   id: string
   label: string
-  kind: 'memory' | 'skill'
+  kind: 'lesson' | 'memory' | 'skill'
   memorySource?: 'memory' | 'profile'
   timestamp?: null | number
   category: string
@@ -476,7 +476,21 @@ export interface StarmapGraph {
   edges: StarmapEdge[]
   clusters: StarmapCluster[]
   memory: StarmapMemoryCard[]
+  /** Chronicle lessons — distilled from the agent's own sealed episodes.
+   * Absent on backends that predate the Studiosus graft. */
+  lessons?: StarmapLessonCard[]
   stats: Record<string, unknown>
+}
+
+/** A chronicle lesson rendered as a card beside its graph node. */
+export interface StarmapLessonCard {
+  id: string
+  title: string
+  text: string
+  tags: string[]
+  sourceEpisode?: null | string
+  sourceOutcome?: null | string
+  reinforced: number
 }
 
 export interface ContextUsageCategory {
