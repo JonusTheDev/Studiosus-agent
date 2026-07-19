@@ -502,6 +502,48 @@ def test_assemble_serves_nothing_when_chronicle_is_off(monkeypatch):
     assert ctx.plugin_user_context == ""
 
 
+def test_assemble_lays_a_certificate_beside_matching_work(monkeypatch):
+    monkeypatch.setenv("HERMES_CHRONICLE", "1")
+    import json as _json
+
+    from agent import wall
+    wall.wall_dir().mkdir(parents=True, exist_ok=True)
+    cert = {"id": "cert-skill-1", "kind": "certificate",
+            "title": "Certificate of Mastery: Renaming config files",
+            "tags": ["files", "certificate"], "keywords": ["rename"],
+            "text": "Proven in service.", "source": "skill-1"}
+    with open(wall.wall_dir() / "entries.jsonl", "a", encoding="utf-8") as f:
+        f.write(_json.dumps(cert) + "\n")
+
+    agent = _FakeAgent()
+    ctx = _build(agent, user_message="rename the config file please")
+
+    assert "ground you have truly earned" in ctx.plugin_user_context
+    # A certificate is a confidence signal: never reinforced, never recorded
+    # as a served id.
+    assert agent._served_skill_ids == []
+
+
+def test_assemble_whispers_the_world_when_the_spirit_is_on(monkeypatch):
+    monkeypatch.setenv("HERMES_SPIRIT", "1")
+
+    agent = _FakeAgent()
+    ctx = _build(agent, user_message="rename the config file please")
+
+    # The turn's labor moved him to the workshop, and he hears it.
+    assert "You are in the workshop, steps from home." in ctx.plugin_user_context
+    assert "You feel: content, rested, settled, willing." in ctx.plugin_user_context
+
+
+def test_assemble_is_silent_ground_when_the_spirit_is_off(monkeypatch):
+    monkeypatch.delenv("HERMES_SPIRIT", raising=False)
+
+    agent = _FakeAgent()
+    ctx = _build(agent, user_message="rename the config file please")
+
+    assert "You feel:" not in ctx.plugin_user_context
+
+
 def test_assemble_stays_silent_for_an_unresembling_task(monkeypatch):
     monkeypatch.setenv("HERMES_CHRONICLE", "1")
     _shelve_skill()

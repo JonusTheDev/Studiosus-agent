@@ -243,3 +243,28 @@ def test_secrets_are_redacted_before_they_reach_the_disk(soul_on):
     episode.seal(soul.OUTCOME_COMPLETE)
     raw = episode.path.read_text(encoding="utf-8")
     assert "sk-ant-api03-" + "A" * 95 not in raw
+
+
+# --- the spirit hears the seal (Phase E wiring) --------------------------
+
+
+def test_a_sealed_turn_moves_the_heart_when_the_spirit_is_on(soul_on, monkeypatch):
+    monkeypatch.setenv("HERMES_SPIRIT", "1")
+    from agent import spirit
+
+    _run(_StubAgent())
+
+    st = spirit.state()
+    assert st["registers"]["joy"] == 1    # good toil...
+    assert st["registers"]["vigor"] == -1  # ...but toil
+
+
+def test_without_a_soul_no_memory_moves_the_heart(monkeypatch):
+    monkeypatch.delenv("HERMES_SOUL", raising=False)
+    monkeypatch.setenv("HERMES_SPIRIT", "1")
+    from agent import spirit
+
+    _run(_StubAgent())
+
+    # No episode sealed means no memory was made: the registers stay at rest.
+    assert spirit.state()["registers"]["joy"] == 0

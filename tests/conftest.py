@@ -210,6 +210,11 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     # And the Chronicle, which would otherwise spawn background reflections
     # (real auxiliary model calls) from any test that finalizes a turn.
     "HERMES_CHRONICLE",
+    # The spirit: with it enabled every finalized turn would move the world
+    # registers, and a voice pin would swap the identity tier under prompt
+    # tests.
+    "HERMES_SPIRIT",
+    "HERMES_VOICE",
     # Kanban path/board pins must never leak from a developer shell or
     # dispatched worker into tests; otherwise tests can write fake tasks to
     # the real ~/.hermes/kanban.db instead of the per-test HERMES_HOME.

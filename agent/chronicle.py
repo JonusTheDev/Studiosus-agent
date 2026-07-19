@@ -348,6 +348,12 @@ def reflect(episode_id: str, call_fn: Optional[Callable] = None,
         }
         if add(item):
             shelved.append(item)
+    if shelved:
+        try:
+            from agent.spirit import beat as _spirit_beat
+            _spirit_beat("lesson_earned", episode_id=episode_id)
+        except Exception:
+            pass  # reflection sharpens whether or not the world turns
     return shelved
 
 
@@ -602,6 +608,13 @@ def apply_consolidation(proposal: dict) -> dict:
         _reinforcement_path().write_text(
             json.dumps(new_counts, indent=1, sort_keys=True) + "\n",
             encoding="utf-8")
+
+    if merged or released:
+        try:
+            from agent.spirit import beat as _spirit_beat
+            _spirit_beat("rested")  # a dreamy night's sleep, truly slept
+        except Exception:
+            pass
 
     return {"before": len(shelf), "after": len(kept) + len(merged),
             "merged": len(merged), "released": len(released), "refused": refused}

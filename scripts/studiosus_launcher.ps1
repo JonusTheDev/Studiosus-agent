@@ -79,10 +79,13 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "flame not ready - see the report above. Hermes will still start; the first turn will be slow." -ForegroundColor Yellow
 }
 
-# 4. The Studiosus heart, on for this window: episodes, reflection, tending.
+# 4. The Studiosus heart, on for this window: episodes, reflection, tending —
+#    and the spirit: the world of Intertextus, and the student's own voice.
 $env:HERMES_SOUL = "1"
 $env:HERMES_CHRONICLE = "1"
 $env:HERMES_FLAME = "1"
+$env:HERMES_SPIRIT = "1"
+if (-not $env:HERMES_VOICE) { $env:HERMES_VOICE = "studiosus" }
 
 if ($NoLaunch) {
     Step "-NoLaunch: stack is up; not starting the CLI"

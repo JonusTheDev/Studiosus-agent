@@ -582,6 +582,20 @@ def finalize_turn(
             served_lessons=getattr(agent, "_served_lesson_ids", None),
             served_skills=getattr(agent, "_served_skill_ids", None),
         )
+        # The spirit: a sealed episode is a new memory, and a new memory moves
+        # the heart — deterministically, by the event table. Only when an
+        # episode truly sealed: no Soul, no memory, no feeling.
+        if _soul_episode_id:
+            try:
+                from agent.soul import turn_outcome as _soul_turn_outcome
+                from agent.spirit import beat as _spirit_beat
+                from agent.spirit import outcome_event as _spirit_outcome_event
+                _ev = _spirit_outcome_event(_soul_turn_outcome(
+                    completed=completed, failed=failed, interrupted=interrupted))
+                if _ev:
+                    _spirit_beat(_ev, episode_id=_soul_episode_id)
+            except Exception:
+                pass  # the world observes the work; it must never break it
         # REFLECT — distill the sealed episode in the quiet afterwards, on the
         # auxiliary client and in the background. The response is already
         # delivered; reflection must never make the user wait for it.
