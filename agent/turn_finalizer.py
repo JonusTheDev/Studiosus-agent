@@ -580,6 +580,7 @@ def finalize_turn(
             model=agent.model,
             platform=getattr(agent, "platform", None) or "",
             served_lessons=getattr(agent, "_served_lesson_ids", None),
+            served_skills=getattr(agent, "_served_skill_ids", None),
         )
         # REFLECT — distill the sealed episode in the quiet afterwards, on the
         # auxiliary client and in the background. The response is already
