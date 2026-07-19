@@ -1,0 +1,25 @@
+# The Porter — systemd user unit. Rises with the WSL VM (linger is enabled),
+# stands up the studiosus_porter tmux session running `claude remote-control`.
+#
+# Install (once, from WSL):
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/porter.service ~/.config/systemd/user/studiosus-porter.service
+#   systemctl --user daemon-reload && systemctl --user enable --now studiosus-porter.service
+#
+# A faithful sibling of the LuceRenascimur porter.service — a distinct unit name and
+# tmux session, so both can stand on the same WSL VM at once. Adjust the /mnt/j path
+# below if this repo lives elsewhere.
+[Unit]
+Description=Studiosus-Agent Porter -- always-on claude remote-control in tmux
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Wait for the repo drive to automount at VM boot.
+ExecStartPre=/bin/sh -c 'until [ -d /mnt/j/Studiosus-Agent ]; do sleep 2; done'
+TimeoutStartSec=120
+ExecStart=/bin/bash /mnt/j/Studiosus-Agent/scripts/porter.sh
+ExecStop=/usr/bin/tmux kill-session -t studiosus_porter
+
+[Install]
+WantedBy=default.target
