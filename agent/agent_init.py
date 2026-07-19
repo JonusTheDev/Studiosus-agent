@@ -2101,6 +2101,32 @@ def init_agent(
         except Exception as exc:
             _ra().logger.debug("flame tending failed: %s", exc)
 
+    # A measured dyno profile answers the same question ``model.context_length``
+    # does — how big a window this box can actually hold — but from the machine
+    # rather than from a hand-edited guess.  Prefer it over GGUF metadata, which
+    # advertises the model's *trained* maximum (256K for qwen3.6) and would have
+    # Ollama allocate all of it on a 16 GB card.  An explicit ollama_num_ctx in
+    # config.yaml still wins; this only fills the gap where detection would
+    # otherwise reach for the model card.
+    if (
+        agent._ollama_num_ctx is None
+        and _ollama_num_ctx_override is None
+        and agent.base_url
+        and is_local_endpoint(agent.base_url)
+    ):
+        try:
+            from agent.dyno import load_profile as _dyno_load
+            from agent.dyno import operating_num_ctx as _dyno_ctx
+            _measured_ctx = _dyno_ctx(_dyno_load(agent.model))
+            if _measured_ctx:
+                agent._ollama_num_ctx = _measured_ctx
+                _ra().logger.info(
+                    "Ollama num_ctx from dyno profile: %d (%s)",
+                    _measured_ctx, agent.model,
+                )
+        except Exception as exc:
+            _ra().logger.debug("dyno profile num_ctx lookup failed: %s", exc)
+
     if agent._ollama_num_ctx is None and agent.base_url and is_local_endpoint(agent.base_url):
         try:
             # ``agent.api_key`` may be a callable (Entra token provider).
