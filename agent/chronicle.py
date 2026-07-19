@@ -416,3 +416,297 @@ def _auxiliary_call(prompt: str, runtime: Optional[dict] = None) -> str:
         api_key=runtime.get("api_key") or None,
     )
     return extract_content_or_reasoning(response) or ""
+
+
+# ---------------------------------------------------------------------------
+# Phase C - consolidation: the distillation of the distilled.
+#
+# "A dreamy night's sleep": kin lessons are merged into sharper ones and
+# platitudes released, so the shelf holds more meaning than the day before
+# while growing smaller.  The covenant, enforced in apply_consolidation()
+# REGARDLESS of what the dream asked:
+#
+#   * a lesson with reinforcement > 0 is NEVER shed - it is load-bearing;
+#     it may still be merged, and the merge inherits its strength;
+#   * shed and absorbed lessons are archived to shed.jsonl, never burned;
+#   * propose-then-apply: the dream writes a proposal file and changes
+#     NOTHING; only apply_consolidation - a human's deliberate act, via the
+#     CLI - touches the shelf, and a proposal applies at most once.
+# ---------------------------------------------------------------------------
+
+BATCH_SIZE = 10  # a dream works one small neighborhood of kin at a time; the
+# ancestor measured whole-shelf dreams overflowing context and timing out,
+# and sorting by tags lands kin together so small batches still find them.
+
+CONSOLIDATE_PROMPT = """\
+You are consolidating your own chronicle of lessons in the quiet of sleep - \
+merging kin, releasing what never mattered. Below are your lessons, each with \
+an id and a REINFORCED count (how often it was laid beside real work).
+
+Rules:
+- MERGE lessons that say the same thing in different coats: write ONE sharper \
+lesson and list the absorbed ids. The merged text must preserve every \
+distinct situation the absorbed lessons covered.
+- SHED only lessons that are empty platitudes teaching nothing situational. A \
+lesson with REINFORCED > 0 must NEVER be shed (it is load-bearing; you may \
+still merge it). When unsure, keep. An untouched lesson needs no mention.
+
+LESSONS:
+{lessons}
+
+Reply with ONLY a JSON object, no prose around it:
+{{"merges": [{{"title": "...", "tags": ["..."], "keywords": ["..."],
+    "text": "when <situation>: <the sharpened lesson>", "absorb": ["id", "id"]}}],
+  "shed": ["id"]}}
+"""
+
+
+def consolidation_dir() -> Path:
+    return chronicle_dir() / "consolidation"
+
+
+def _shed_path() -> Path:
+    return chronicle_dir() / "shed.jsonl"
+
+
+def _rewrite(lessons: list[dict]) -> None:
+    """Replace the whole shelf.  Consolidation is the ONLY caller: everything
+    else appends, because the past is not edited."""
+    chronicle_dir().mkdir(parents=True, exist_ok=True)
+    with open(_lessons_path(), "w", encoding="utf-8") as f:
+        for lesson in lessons:
+            f.write(json.dumps(lesson, ensure_ascii=False) + "\n")
+
+
+def _archive_shed(lessons: list[dict], reason: str) -> None:
+    """Released, not burned.  A shed lesson can always be read back."""
+    if not lessons:
+        return
+    chronicle_dir().mkdir(parents=True, exist_ok=True)
+    with open(_shed_path(), "a", encoding="utf-8") as f:
+        for lesson in lessons:
+            f.write(json.dumps({**lesson, "shed_reason": reason,
+                                "shed_at": soul.now_ts()},
+                               ensure_ascii=False) + "\n")
+
+
+def propose_consolidation(call_fn: Optional[Callable] = None, *,
+                          write: bool = True, batch_size: int = BATCH_SIZE,
+                          runtime: Optional[dict] = None) -> dict:
+    """Dream up a consolidation.  Applies NOTHING.
+
+    Lessons are sorted by tags so kin cluster into the same batch, and each
+    batch is dreamt over independently - a malformed reply loses one batch's
+    suggestions, never the run.  Returns ``{"proposal", "path"}``.
+    """
+    lessons = sorted(entries(),
+                     key=lambda e: (",".join(e.get("tags", [])), e.get("title", "")))
+    counts = reinforcement()
+    merges: list[dict] = []
+    shed: list[str] = []
+    for i in range(0, len(lessons), batch_size):
+        batch = lessons[i:i + batch_size]
+        lines = ["- id=%s REINFORCED=%d [%s] %s :: %s"
+                 % (lesson["id"], counts.get(lesson["id"], 0),
+                    ", ".join(lesson.get("tags", [])),
+                    lesson.get("title", ""), lesson.get("text", "")[:200])
+                 for lesson in batch]
+        try:
+            prompt = CONSOLIDATE_PROMPT.format(lessons="\n".join(lines))
+            reply = call_fn(prompt) if call_fn else _auxiliary_call(prompt,
+                                                                    runtime=runtime)
+        except Exception as exc:
+            _log().warning("chronicle: consolidation batch %d failed: %s",
+                           i // batch_size + 1, exc)
+            continue
+        raw = _extract_json(reply or "")
+        merges += [m for m in (raw.get("merges") or []) if isinstance(m, dict)]
+        shed += [sid for sid in (raw.get("shed") or []) if isinstance(sid, str)]
+
+    proposal = {"proposed_at": soul.now_ts(), "lesson_count": len(lessons),
+                "merges": merges, "shed": shed}
+    path = None
+    if write:
+        consolidation_dir().mkdir(parents=True, exist_ok=True)
+        path = consolidation_dir() / ("proposal-%s.json" % proposal["proposed_at"])
+        path.write_text(json.dumps(proposal, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+    return {"proposal": proposal, "path": str(path) if path else None}
+
+
+def apply_consolidation(proposal: dict) -> dict:
+    """Apply a reviewed proposal.  The covenant is enforced HERE, regardless
+    of what the dream asked - the dream is counsel, this is law.
+
+    Returns ``{"before", "after", "merged", "released", "refused"}`` where
+    each refusal names the id and the reason, so the reviewing hand sees
+    exactly what was declined and why.
+    """
+    shelf = {lesson["id"]: lesson for lesson in entries()}
+    counts = reinforcement()
+    ts = proposal.get("proposed_at", soul.now_ts())
+
+    refused: list[dict] = []
+    removed: set[str] = set()
+
+    for lid in proposal.get("shed", []):
+        if lid not in shelf:
+            refused.append({"id": lid, "why": "unknown id"})
+        elif counts.get(lid, 0) > 0:
+            refused.append({"id": lid, "why": "reinforced; never shed"})
+        else:
+            removed.add(lid)
+
+    merged: list[dict] = []
+    for n, m in enumerate(proposal.get("merges", []), start=1):
+        absorb = [a for a in m.get("absorb", []) if a in shelf and a not in removed]
+        if len(absorb) < 2 or not str(m.get("text", "")).strip():
+            refused.append({"id": m.get("title", "merge-%d" % n),
+                            "why": "merge needs >=2 known absorbed ids and a text"})
+            continue
+        # The merged text must preserve every situation its kin covered - and
+        # tags are how a situation is FOUND, so the kin's tags are unioned in
+        # regardless of what the dream wrote. A merge that lost its parents'
+        # tags would preserve the words while orphaning the retrieval.
+        dream_tags = [str(t)[:40] for t in m.get("tags", [])
+                      if isinstance(m.get("tags"), list)]
+        kin_tags = [t for a in absorb for t in shelf[a].get("tags", [])]
+        merged.append({
+            "id": "consolidated-%s-%d" % (ts, n),
+            "title": str(m.get("title", "consolidated lesson"))[:120],
+            "text": str(m["text"])[:MAX_LESSON_CHARS],
+            "tags": list(dict.fromkeys(dream_tags + kin_tags)),
+            "keywords": [str(k)[:40] for k in m.get("keywords", [])
+                         if isinstance(m.get("keywords"), list)],
+            "source_episode": None,
+            "source_outcome": None,
+            "absorbed": absorb,
+            "created": soul.now_ts(),
+        })
+        removed.update(absorb)
+
+    released = [shelf[lid] for lid in removed]
+    kept = [lesson for lesson in entries() if lesson["id"] not in removed]
+    _archive_shed(released, reason="consolidation:%s" % ts)
+    _rewrite(kept + merged)
+
+    # A merge inherits the strength of what it absorbed: consolidation must
+    # never be a way to launder a load-bearing lesson into a shed-able one.
+    if merged:
+        new_counts = reinforcement()
+        for item in merged:
+            inherited = sum(counts.get(a, 0) for a in item["absorbed"])
+            if inherited:
+                new_counts[item["id"]] = new_counts.get(item["id"], 0) + inherited
+        chronicle_dir().mkdir(parents=True, exist_ok=True)
+        _reinforcement_path().write_text(
+            json.dumps(new_counts, indent=1, sort_keys=True) + "\n",
+            encoding="utf-8")
+
+    return {"before": len(shelf), "after": len(kept) + len(merged),
+            "merged": len(merged), "released": len(released), "refused": refused}
+
+
+def list_proposals() -> list[dict]:
+    """Every proposal on the desk, oldest first.  Malformed files are skipped."""
+    directory = consolidation_dir()
+    if not directory.is_dir():
+        return []
+    out = []
+    for path in sorted(directory.glob("proposal-*.json")):
+        try:
+            prop = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        out.append({"ts": prop.get("proposed_at", path.stem[len("proposal-"):]),
+                    "merges": len(prop.get("merges", [])),
+                    "shed": len(prop.get("shed", [])),
+                    "applied_at": prop.get("applied_at"),
+                    "path": str(path)})
+    return out
+
+
+def apply_proposal_file(ts: str) -> dict:
+    """Apply one desk proposal by timestamp, exactly once.
+
+    Raises ``KeyError`` for a proposal that does not exist and ``ValueError``
+    for one already applied - a proposal is a moment's counsel, and the shelf
+    it described no longer exists after the first application.
+    """
+    path = consolidation_dir() / ("proposal-%s.json" % ts)
+    if not path.is_file():
+        raise KeyError("no proposal %s on the desk" % ts)
+    proposal = json.loads(path.read_text(encoding="utf-8"))
+    if proposal.get("applied_at"):
+        raise ValueError("proposal %s was already applied at %s"
+                         % (ts, proposal["applied_at"]))
+    summary = apply_consolidation(proposal)
+    proposal["applied_at"] = soul.now_ts()
+    proposal["applied_summary"] = summary
+    path.write_text(json.dumps(proposal, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
+    return summary
+
+
+def _main(argv: Optional[list] = None) -> int:  # pragma: no cover - thin CLI
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python -m agent.chronicle",
+        description="The lesson shelf: inspect it, dream a consolidation, apply one.")
+    sub = parser.add_subparsers(dest="cmd")
+    sub.add_parser("shelf", help="list every lesson with its reinforcement")
+    sub.add_parser("desk", help="list consolidation proposals")
+    p_prop = sub.add_parser("propose",
+                            help="dream a consolidation proposal (changes nothing)")
+    p_prop.add_argument("--model", default=None,
+                        help="model to dream with when auxiliary.reflection is "
+                             "unusable, e.g. qwen3.6:latest")
+    p_prop.add_argument("--base-url", default="http://127.0.0.1:11434/v1")
+    p_prop.add_argument("--provider", default="custom")
+    p_prop.add_argument("--api-key", default="ollama")
+    p_apply = sub.add_parser("apply", help="apply one reviewed proposal")
+    p_apply.add_argument("ts", help="proposal timestamp, from 'desk'")
+    args = parser.parse_args(argv)
+
+    if args.cmd == "shelf":
+        counts = reinforcement()
+        for lesson in entries():
+            print("%-46s r=%-3d [%s] %s" % (lesson["id"][:46],
+                  counts.get(lesson["id"], 0),
+                  ", ".join(lesson.get("tags", [])), lesson.get("title", "")))
+        print("%d lesson(s); shed archive: %s" % (
+            len(entries()), _shed_path() if _shed_path().is_file() else "(empty)"))
+    elif args.cmd == "desk":
+        proposals = list_proposals()
+        for prop in proposals:
+            state = ("applied %s" % prop["applied_at"]) if prop["applied_at"] else "PENDING"
+            print("%s  merges=%d shed=%d  %s" % (prop["ts"], prop["merges"],
+                                                 prop["shed"], state))
+        if not proposals:
+            print("the desk is empty - dream one with: propose")
+    elif args.cmd == "propose":
+        runtime = ({"model": args.model, "provider": args.provider,
+                    "base_url": args.base_url, "api_key": args.api_key}
+                   if args.model else None)
+        got = propose_consolidation(runtime=runtime)
+        prop = got["proposal"]
+        print("proposed: %d merge(s), %d shed over %d lesson(s)"
+              % (len(prop["merges"]), len(prop["shed"]), prop["lesson_count"]))
+        print("written to %s" % got["path"])
+        print("review it, then: python -m agent.chronicle apply %s" % prop["proposed_at"])
+    elif args.cmd == "apply":
+        summary = apply_proposal_file(args.ts)
+        print("shelf: %d -> %d (%d merged, %d released to the shed archive)"
+              % (summary["before"], summary["after"], summary["merged"],
+                 summary["released"]))
+        for r in summary["refused"]:
+            print("  refused %s: %s" % (r["id"], r["why"]))
+    else:
+        parser.print_help()
+        return 1
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(_main())
