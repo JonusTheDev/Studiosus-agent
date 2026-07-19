@@ -574,6 +574,31 @@ def build_turn_context(
     except Exception as exc:
         logger.warning("pre_llm_call hook failed: %s", exc)
 
+    # ASSEMBLE — lay the lessons this task resembles beside the work.
+    #
+    # Appended to the user-message context, never the system prompt: what the
+    # agent learned yesterday must not invalidate today's cached prefix. A
+    # served lesson is reinforced here rather than at reflection time, because
+    # what earns a lesson its keep is being *used*, not being written.
+    agent._served_lesson_ids = []
+    try:
+        from agent import chronicle as _chronicle
+        if _chronicle.chronicle_enabled():
+            _task_text = (original_user_message
+                          if isinstance(original_user_message, str) else "")
+            _lessons = _chronicle.retrieve(_task_text)
+            if _lessons:
+                _block = _chronicle.render(_lessons)
+                plugin_user_context = (
+                    f"{plugin_user_context}\n\n{_block}" if plugin_user_context
+                    else _block
+                )
+                agent._served_lesson_ids = [lesson["id"] for lesson in _lessons]
+                _chronicle.reinforce(agent._served_lesson_ids)
+                logger.info("chronicle: served %d lesson(s)", len(_lessons))
+    except Exception as exc:
+        logger.warning("chronicle retrieval failed: %s", exc)
+
     # Per-turn file-mutation verifier state.
     agent._turn_failed_file_mutations = {}
     agent._turn_file_mutation_paths = set()

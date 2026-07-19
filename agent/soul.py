@@ -312,6 +312,7 @@ def record_turn(
     exit_reason: Any = "",
     model: str = "",
     platform: str = "",
+    served_lessons: Optional[Iterable[str]] = None,
 ) -> Optional[str]:
     """Write one sealed episode for a finished turn.  Returns its id, or None.
 
@@ -329,7 +330,11 @@ def record_turn(
             session_id=session_id,
             task_text=user_message if isinstance(user_message, str) else "",
         )
-        episode.record(ASSEMBLE, model=model, platform=platform)
+        # What was laid beside the work, recorded beside the outcome it led to.
+        # This pairing is the whole basis of the Phase D correlation report, and
+        # it cannot be reconstructed after the fact — hence from day one.
+        episode.record(ASSEMBLE, model=model, platform=platform,
+                       lessons=list(served_lessons or []))
         for event_type, fields in turn_events(messages or []):
             episode.record(event_type, **fields)
         if final_response:

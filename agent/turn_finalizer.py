@@ -566,7 +566,7 @@ def finalize_turn(
     # because an observer must never be able to break the turn it observes.
     try:
         from agent.soul import record_turn as _soul_record_turn
-        _soul_record_turn(
+        _soul_episode_id = _soul_record_turn(
             turn_id=turn_id,
             task_id=effective_task_id,
             session_id=agent.session_id or "",
@@ -579,7 +579,23 @@ def finalize_turn(
             exit_reason=_turn_exit_reason,
             model=agent.model,
             platform=getattr(agent, "platform", None) or "",
+            served_lessons=getattr(agent, "_served_lesson_ids", None),
         )
+        # REFLECT — distill the sealed episode in the quiet afterwards, on the
+        # auxiliary client and in the background. The response is already
+        # delivered; reflection must never make the user wait for it.
+        if _soul_episode_id:
+            from agent.chronicle import (
+                chronicle_enabled as _chronicle_enabled,
+                spawn_reflection as _spawn_reflection,
+            )
+            if _chronicle_enabled():
+                _spawn_reflection(_soul_episode_id, runtime={
+                    "model": agent.model,
+                    "provider": agent.provider,
+                    "base_url": agent.base_url,
+                    "api_key": agent.api_key if isinstance(agent.api_key, str) else "",
+                })
     except Exception as exc:
         logger.warning("soul: record_turn failed: %s", exc)
 

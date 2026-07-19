@@ -207,6 +207,9 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     # agent against a local endpoint would reach out and unload the
     # developer's resident models.
     "HERMES_FLAME",
+    # And the Chronicle, which would otherwise spawn background reflections
+    # (real auxiliary model calls) from any test that finalizes a turn.
+    "HERMES_CHRONICLE",
     # Kanban path/board pins must never leak from a developer shell or
     # dispatched worker into tests; otherwise tests can write fake tasks to
     # the real ~/.hermes/kanban.db instead of the per-test HERMES_HOME.
