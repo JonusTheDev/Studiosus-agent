@@ -436,6 +436,83 @@ def test_preflight_still_runs_for_other_session_with_same_db(tmp_path):
     agent._compress_context.assert_called()
 
 
+# ── ASSEMBLE: lessons and earned skills laid beside the work ─────────────────
+#
+# The chronicle writes are covered in test_chronicle / test_earned_skills;
+# these guard the *wiring* — that the prologue actually retrieves, injects,
+# records the served ids on the agent (turn_finalizer reads them for the
+# episode's assemble event), and reinforces. This wiring was once promised by
+# a commit that never touched this file; hence a test that would have failed.
+
+
+def _shelve_lesson():
+    from agent import chronicle
+    chronicle.chronicle_dir().mkdir(parents=True, exist_ok=True)
+    lesson = {
+        "id": "lesson-1", "title": "Quote paths with spaces",
+        "tags": ["files"], "keywords": ["rename", "config"],
+        "text": "when renaming a config file: quote the path",
+    }
+    with open(chronicle.chronicle_dir() / "lessons.jsonl", "a", encoding="utf-8") as f:
+        import json
+        f.write(json.dumps(lesson) + "\n")
+    return lesson
+
+
+def _shelve_skill():
+    from agent import earned_skills
+    skill = {
+        "id": "skill-1", "title": "Renaming config files",
+        "tags": ["files"], "keywords": ["rename", "config"],
+        "text": "Reach for this when: renaming a config file\nSteps:\n1. quote it",
+        "from_episodes": ["e1", "e2", "e3"],
+    }
+    assert earned_skills.add(skill)
+    return skill
+
+
+def test_assemble_serves_lessons_and_skills_beside_the_work(monkeypatch):
+    monkeypatch.setenv("HERMES_CHRONICLE", "1")
+    _shelve_lesson()
+    _shelve_skill()
+
+    agent = _FakeAgent()
+    ctx = _build(agent, user_message="rename the config file please")
+
+    assert agent._served_lesson_ids == ["lesson-1"]
+    assert agent._served_skill_ids == ["skill-1"]
+    assert "Lessons from your own past work" in ctx.plugin_user_context
+    assert "Playbooks earned from your own repeated successes" in ctx.plugin_user_context
+    # What was laid beside the work is reinforced — used, not merely written.
+    from agent import chronicle, earned_skills
+    assert chronicle.reinforcement().get("lesson-1") == 1
+    assert earned_skills.reinforcement().get("skill-1") == 1
+
+
+def test_assemble_serves_nothing_when_chronicle_is_off(monkeypatch):
+    monkeypatch.delenv("HERMES_CHRONICLE", raising=False)
+    _shelve_lesson()
+    _shelve_skill()
+
+    agent = _FakeAgent()
+    ctx = _build(agent, user_message="rename the config file please")
+
+    assert agent._served_lesson_ids == []
+    assert agent._served_skill_ids == []
+    assert ctx.plugin_user_context == ""
+
+
+def test_assemble_stays_silent_for_an_unresembling_task(monkeypatch):
+    monkeypatch.setenv("HERMES_CHRONICLE", "1")
+    _shelve_skill()
+
+    agent = _FakeAgent()
+    ctx = _build(agent, user_message="draw me a picture of a horse")
+
+    assert agent._served_skill_ids == []
+    assert "Playbooks" not in ctx.plugin_user_context
+
+
 def test_expired_cooldown_allows_preflight(tmp_path):
     agent = _make_agent_with_cooldown(
         tmp_path / "state.db",

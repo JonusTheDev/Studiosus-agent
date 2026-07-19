@@ -574,28 +574,46 @@ def build_turn_context(
     except Exception as exc:
         logger.warning("pre_llm_call hook failed: %s", exc)
 
-    # ASSEMBLE — lay the lessons this task resembles beside the work.
+    # ASSEMBLE — lay the lessons and earned skills this task resembles beside
+    # the work.
     #
     # Appended to the user-message context, never the system prompt: what the
     # agent learned yesterday must not invalidate today's cached prefix. A
-    # served lesson is reinforced here rather than at reflection time, because
-    # what earns a lesson its keep is being *used*, not being written.
+    # served lesson or skill is reinforced here rather than at write time,
+    # because what earns its keep is being *used*, not being written — and the
+    # served-skill ids land on the episode's assemble event, which is the whole
+    # basis of the serve→outcome correlation report.
     agent._served_lesson_ids = []
+    agent._served_skill_ids = []
     try:
         from agent import chronicle as _chronicle
         if _chronicle.chronicle_enabled():
             _task_text = (original_user_message
                           if isinstance(original_user_message, str) else "")
             _lessons = _chronicle.retrieve(_task_text)
+            _skills = []
+            try:
+                from agent import earned_skills as _earned
+                _skills = _earned.retrieve(_task_text)
+            except Exception as exc:
+                logger.warning("earned-skills retrieval failed: %s", exc)
+            _blocks = []
             if _lessons:
-                _block = _chronicle.render(_lessons)
+                _blocks.append(_chronicle.render(_lessons))
+                agent._served_lesson_ids = [lesson["id"] for lesson in _lessons]
+                _chronicle.reinforce(agent._served_lesson_ids)
+            if _skills:
+                _blocks.append(_earned.render(_skills))
+                agent._served_skill_ids = [skill["id"] for skill in _skills]
+                _earned.reinforce(agent._served_skill_ids)
+            if _blocks:
+                _block = "\n\n".join(_blocks)
                 plugin_user_context = (
                     f"{plugin_user_context}\n\n{_block}" if plugin_user_context
                     else _block
                 )
-                agent._served_lesson_ids = [lesson["id"] for lesson in _lessons]
-                _chronicle.reinforce(agent._served_lesson_ids)
-                logger.info("chronicle: served %d lesson(s)", len(_lessons))
+                logger.info("chronicle: served %d lesson(s), %d skill(s)",
+                            len(_lessons), len(_skills))
     except Exception as exc:
         logger.warning("chronicle retrieval failed: %s", exc)
 
