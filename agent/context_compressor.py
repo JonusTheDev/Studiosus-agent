@@ -28,7 +28,7 @@ from agent.auxiliary_client import call_llm, _is_connection_error, aux_interrupt
 from agent.context_engine import ContextEngine
 from agent.error_classifier import FailoverReason, classify_api_error
 from agent.model_metadata import (
-    MINIMUM_CONTEXT_LENGTH,
+    COMPRESSION_FLOOR_TOKENS,
     get_model_context_length,
     estimate_messages_tokens_rough,
 )
@@ -1181,7 +1181,7 @@ class ContextCompressor(ContextEngine):
         self._verify_compaction_cleared_threshold = False
         self._last_compression_made_progress = False
 
-    # When the MINIMUM_CONTEXT_LENGTH floor meets/exceeds a small context
+    # When the COMPRESSION_FLOOR_TOKENS floor meets/exceeds a small context
     # window, compacting at the percentage (50% → 32K of a 64K window) wastes
     # half the usable context. Trigger near the top of the window instead so a
     # minimum-context model uses most of its budget before compacting — same
@@ -1229,7 +1229,7 @@ class ContextCompressor(ContextEngine):
         """Compute the compaction trigger threshold in tokens.
 
         The base value is ``effective_input_budget * threshold_percent``, floored
-        at ``MINIMUM_CONTEXT_LENGTH`` so large-context models don't compress
+        at ``COMPRESSION_FLOOR_TOKENS`` so large-context models don't compress
         prematurely at 50%. BUT that floor degenerates at small windows: for a
         model whose ``context_length`` is at/below the minimum (e.g. a 64K
         local model), ``max(0.5*64000, 64000) == 64000`` makes the threshold
@@ -1254,7 +1254,7 @@ class ContextCompressor(ContextEngine):
         if effective_window <= 0:
             effective_window = context_length
         pct_value = int(effective_window * threshold_percent)
-        floored = max(pct_value, MINIMUM_CONTEXT_LENGTH)
+        floored = max(pct_value, COMPRESSION_FLOOR_TOKENS)
         # If flooring pushed the threshold to/over the effective window it can
         # never be reached. Trigger at 85% of the effective input budget so a
         # minimum-context model rides most of its budget before compacting
@@ -1320,7 +1320,7 @@ class ContextCompressor(ContextEngine):
             self.context_length, self.threshold_percent,
         )
         threshold_percent = self.threshold_percent
-        # Floor: never compress below MINIMUM_CONTEXT_LENGTH tokens even if
+        # Floor: never compress below COMPRESSION_FLOOR_TOKENS tokens even if
         # the percentage would suggest a lower value.  This prevents premature
         # compression on large-context models at 50% while keeping the % sane
         # for models right at the minimum. _compute_threshold_tokens also
