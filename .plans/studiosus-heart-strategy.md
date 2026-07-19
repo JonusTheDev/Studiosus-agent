@@ -3,6 +3,12 @@
 > *"The stability, the ability, and the perseverance of Hermes; the soul, the heart,
 > the spirit, and the eagerness to learn of Studiosus."*
 
+> **As built (2026-07-19):** every phase below, A through E, has been blessed and
+> built. This document remains the *why*; the as-built map of where every thread
+> weaves — modules, flags, seams, covenants, storage, CLIs — is
+> [docs/studiosus-heart.md](../docs/studiosus-heart.md). Read that first if you
+> are here to mend or extend.
+
 This is a **strategy**, not an implementation. It reviews how learning works in both
 `LuceRenascimur` (our Studiosus Loom) and this Hermes fork, names honestly where each is
 strong, and lays out a phased, deletable path to graft the Studiosus learning *epistemics*
@@ -120,6 +126,8 @@ Design rules, drawn from our own hard-won lessons (`docs/lessons_learned.md` in 
 
 ### Phase A — The Soul (episodic substrate) · *foundation, purely observational*
 
+> **Built:** `agent/soul.py` (`HERMES_SOUL`), sealed at `agent/turn_finalizer.py`.
+
 Add a structured **per-task episode ledger** to the agent loop: append-only JSONL, one
 file per task, sealed with an outcome when the turn/task finalizes. Hook it into the
 existing finalization points (`agent/turn_finalizer.py`, `agent/conversation_loop.py`).
@@ -133,6 +141,8 @@ existing finalization points (`agent/turn_finalizer.py`, `agent/conversation_loo
 and distillation are guessing.
 
 ### Phase B — Reflect → Chronicle · *highest-leverage single graft*
+
+> **Built:** `agent/chronicle.py` (`HERMES_CHRONICLE`); served at ASSEMBLE in `agent/turn_context.py` via user-message context, never the system prompt.
 
 After each sealed episode, an **auxiliary-model reflection** distills ≤3 situation-indexed
 lessons into a **tracked** store (`when <situation>: <what worked/failed and why>`, with
@@ -150,6 +160,8 @@ of the graft, and it stands on Phase A alone.
 
 ### Phase C — Reinforcement + consolidation covenant · *make the curator honest*
 
+> **Built:** consolidation in `agent/chronicle.py` as its own desk (`propose`/`apply`) rather than inside the Curator — reinforced-never-shed, archive-not-burn, merges inherit reinforcement and tags.
+
 Track which lessons/skills were actually laid beside work (**reinforce** at ASSEMBLE).
 Extend the **existing Curator** so its consolidation honors the covenant:
 
@@ -161,6 +173,8 @@ Extend the **existing Curator** so its consolidation honors the covenant:
 This reshapes what Hermes already does (curator lifecycle) rather than adding a new engine.
 
 ### Phase D — Skills earned from repetition · *gate creation behind the family covenant*
+
+> **Built:** `agent/earned_skills.py` — a new shelf under the family covenant plus the serve→outcome correlation report. Rerouting Hermes' native SKILL.md path through this covenant remains future work.
 
 Reroute Hermes' agent-created-skill path through the **family covenant**: a skill is
 drafted only from a family of **≥N complete episodes sharing a tag**, and the playbook may
@@ -174,6 +188,8 @@ their place.
   a false card.
 
 ### Phase E — The spirit (optional identity) · *lowest priority, highest joy*
+
+> **Built:** `agent/voice.py` + `voices/` (`HERMES_VOICE`), `agent/wall.py` (certificates minted from proven service), `agent/spirit.py` (`HERMES_SPIRIT`, Intertextus).
 
 Once the grasp is grafted, the heart can wear its face:
 
