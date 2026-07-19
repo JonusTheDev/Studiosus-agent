@@ -560,6 +560,29 @@ def finalize_turn(
     # handled by the CLI (atexit / /reset) and gateway (session expiry /
     # _reset_session).
 
+    # The Soul: record this turn as one sealed episode (off unless HERMES_SOUL
+    # is set).  Placed after the response transforms so the ledger records what
+    # was actually delivered, and guarded twice — here and inside record_turn —
+    # because an observer must never be able to break the turn it observes.
+    try:
+        from agent.soul import record_turn as _soul_record_turn
+        _soul_record_turn(
+            turn_id=turn_id,
+            task_id=effective_task_id,
+            session_id=agent.session_id or "",
+            user_message=_summarize_user_message_for_log(user_message),
+            messages=messages,
+            final_response=final_response,
+            completed=completed,
+            failed=failed,
+            interrupted=interrupted,
+            exit_reason=_turn_exit_reason,
+            model=agent.model,
+            platform=getattr(agent, "platform", None) or "",
+        )
+    except Exception as exc:
+        logger.warning("soul: record_turn failed: %s", exc)
+
     # Plugin hook: on_session_end
     # Fired at the very end of every run_conversation call.
     # Plugins can use this for cleanup, flushing buffers, etc.
