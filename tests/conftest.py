@@ -203,6 +203,10 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     # The Soul episode ledger is off by default; a developer shell with it
     # enabled must not make every test write episodes.
     "HERMES_SOUL",
+    # Likewise the flame tender: with it enabled, a test that constructs an
+    # agent against a local endpoint would reach out and unload the
+    # developer's resident models.
+    "HERMES_FLAME",
     # Kanban path/board pins must never leak from a developer shell or
     # dispatched worker into tests; otherwise tests can write fake tasks to
     # the real ~/.hermes/kanban.db instead of the per-test HERMES_HOME.

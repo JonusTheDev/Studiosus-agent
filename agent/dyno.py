@@ -240,17 +240,22 @@ def clear_field(host: Optional[str] = None, keep: Iterable[str] = ()) -> list[st
     return released
 
 
-def generate_raw(model: str, prompt: str, num_ctx: int, *, host: Optional[str] = None,
-                 num_predict: int = PROBE_TOKENS, keep_alive: str = "30s",
-                 num_gpu: Optional[int] = None) -> dict:
+def generate_raw(model: str, prompt: str, num_ctx: Optional[int] = None, *,
+                 host: Optional[str] = None, num_predict: int = PROBE_TOKENS,
+                 keep_alive: Any = "30s", num_gpu: Optional[int] = None) -> dict:
     """One raw generation, returning Ollama's full reply *with its timings*.
 
     The ordinary chat path hands back only text; the dyno needs ``eval_count``
     and ``eval_duration`` to compute honest tok/s, so it comes here for the
     unabridged answer.
+
+    ``num_ctx=None`` leaves the context unset so the server keeps its own
+    default — which is what a caller that merely wants the model *resident*
+    should ask for, rather than inventing a window.
     """
-    options: dict[str, Any] = {"num_ctx": num_ctx, "num_predict": num_predict,
-                               "temperature": 0.3}
+    options: dict[str, Any] = {"num_predict": num_predict, "temperature": 0.3}
+    if num_ctx:
+        options["num_ctx"] = num_ctx
     if num_gpu is not None:
         options["num_gpu"] = num_gpu
     return _http((host or default_host()) + "/api/generate",
