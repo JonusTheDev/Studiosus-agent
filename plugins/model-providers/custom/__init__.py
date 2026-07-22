@@ -1,8 +1,9 @@
-"""Custom / Ollama (local) provider profile.
+"""Custom / local OpenAI-compatible provider profile.
 
-Covers any endpoint registered as provider="custom", including local
-Ollama instances and OpenAI-compatible reasoning endpoints (GLM-5.2 on
-Volcengine ARK, vLLM, llama.cpp). Key quirks:
+Covers any endpoint registered as provider="custom", including
+OpenAI-compatible reasoning endpoints (GLM-5.2 on Volcengine ARK, vLLM,
+llama.cpp). Local Ollama has its own first-class ``ollama`` profile now,
+but the same transport quirks apply here for its siblings. Key quirks:
   - ollama_num_ctx → extra_body.options.num_ctx (local context window)
   - reasoning_config disabled → top-level reasoning_effort="none"
     (Ollama /v1/chat/completions ignores think=False — ollama#14820)
@@ -84,7 +85,8 @@ class CustomProfile(ProviderProfile):
 custom = CustomProfile(
     name="custom",
     aliases=(
-        "ollama",
+        # "ollama" is now its own first-class provider (see the ollama plugin);
+        # custom still covers the other local OpenAI-compatible servers.
         "local",
         "vllm",
         "llamacpp",

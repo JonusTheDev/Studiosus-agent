@@ -151,6 +151,12 @@ SERVICE_PROVIDER_NAMES: Dict[str, str] = {
 # any remote service.
 LMSTUDIO_NOAUTH_PLACEHOLDER = "dummy-lm-api-key"
 
+# Same idea for a local Ollama server, which serves its OpenAI-compatible
+# endpoint without authentication. The sentinel is only ever sent to the
+# local Ollama endpoint, never to any remote service (Ollama Cloud is a
+# separate provider that uses a real OLLAMA_API_KEY).
+OLLAMA_NOAUTH_PLACEHOLDER = "ollama"
+
 
 # =============================================================================
 # Provider Registry
@@ -216,6 +222,19 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
         inference_base_url="http://127.0.0.1:1234/v1",
         api_key_env_vars=("LM_API_KEY",),
         base_url_env_var="LM_BASE_URL",
+    ),
+    # Local Ollama server. Reached through Ollama's OpenAI-compatible /v1
+    # endpoint (same transport as any OpenAI-style provider), so no native
+    # Ollama API is needed. The default endpoint is the standard local port;
+    # a running local server needs no API key. Use "ollama-cloud" for the
+    # hosted service.
+    "ollama": ProviderConfig(
+        id="ollama",
+        name="Ollama",
+        auth_type="api_key",
+        inference_base_url="http://127.0.0.1:11434/v1",
+        api_key_env_vars=("OLLAMA_API_KEY",),
+        base_url_env_var="OLLAMA_BASE_URL",
     ),
     "copilot": ProviderConfig(
         id="copilot",
@@ -1782,8 +1801,9 @@ def resolve_provider(
         "go": "opencode-go", "opencode-go-sub": "opencode-go",
         "kilo": "kilocode", "kilo-code": "kilocode", "kilo-gateway": "kilocode",
         "lmstudio": "lmstudio", "lm-studio": "lmstudio", "lm_studio": "lmstudio",
-        # Local server aliases — route through the generic custom provider
-        "ollama": "custom", "ollama_cloud": "ollama-cloud",
+        # Local Ollama is a first-class provider with a default local endpoint.
+        "ollama": "ollama", "ollama_cloud": "ollama-cloud",
+        # Other local-server aliases — route through the generic custom provider
         "vllm": "custom", "llamacpp": "custom",
         "llama.cpp": "custom", "llama-cpp": "custom",
     }
@@ -1881,7 +1901,7 @@ def resolve_provider(
         # whose availability isn't implied by LM_API_KEY presence (it may be
         # offline, and the no-auth setup uses a placeholder value), so it
         # also requires explicit selection.
-        if pid in {"copilot", "lmstudio"}:
+        if pid in {"copilot", "lmstudio", "ollama"}:
             continue
         for env_var in pconfig.api_key_env_vars:
             if has_usable_secret(os.getenv(env_var, "")):
@@ -6540,6 +6560,13 @@ def resolve_api_key_provider_credentials(provider_id: str) -> Dict[str, Any]:
     # because get_api_key_provider_status uses the raw secret resolver.
     if not api_key and provider_id == "lmstudio":
         api_key = LMSTUDIO_NOAUTH_PLACEHOLDER
+        key_source = key_source or "default"
+
+    # No-auth local Ollama: a running local server needs no API key, so
+    # substitute a placeholder to mark it as configured. Only applies to the
+    # local "ollama" provider — "ollama-cloud" resolves a real key above.
+    if not api_key and provider_id == "ollama":
+        api_key = OLLAMA_NOAUTH_PLACEHOLDER
         key_source = key_source or "default"
 
     env_url = ""
