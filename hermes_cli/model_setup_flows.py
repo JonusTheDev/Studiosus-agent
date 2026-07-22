@@ -2755,6 +2755,22 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
             model_list = []
         if model_list:
             print(f"  Found {len(model_list)} model(s) from LM Studio")
+    elif provider_id == "ollama":
+        # Local Ollama: live-probe the OpenAI-compatible /v1/models endpoint
+        # for the models the user has pulled. No models.dev catalog and no
+        # curated list — the catalog is whatever is on this machine.
+        from hermes_cli.models import fetch_api_models
+
+        api_key_for_probe = existing_key or (get_env_value(key_env) if key_env else "")
+        model_list = fetch_api_models(api_key_for_probe, effective_base) or []
+        if model_list:
+            print(f"  Found {len(model_list)} model(s) from Ollama")
+        else:
+            # Most commonly the server isn't running yet, or no model is
+            # pulled. Guide the user instead of silently dropping to raw input.
+            print(f"  No models found at {effective_base}")
+            print("  Make sure the Ollama server is running:  ollama serve")
+            print("  and that you've pulled a model, e.g.:  ollama pull qwen3:8b")
     elif provider_id == "ollama-cloud":
         from hermes_cli.models import fetch_ollama_cloud_models
 
