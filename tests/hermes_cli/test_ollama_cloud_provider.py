@@ -56,13 +56,13 @@ class TestOllamaCloudAliases:
         assert resolve_provider("ollama_cloud") == "ollama-cloud"
 
     def test_bare_ollama_stays_local(self):
-        """Bare 'ollama' alias routes to 'custom' (local) — not cloud."""
-        assert resolve_provider("ollama") == "custom"
+        """Bare 'ollama' resolves to the first-class local provider — not cloud."""
+        assert resolve_provider("ollama") == "ollama"
 
     def test_models_py_aliases(self):
         assert _PROVIDER_ALIASES.get("ollama_cloud") == "ollama-cloud"
-        # bare "ollama" stays local
-        assert _PROVIDER_ALIASES.get("ollama") == "custom"
+        # bare "ollama" is its own first-class local provider now
+        assert _PROVIDER_ALIASES.get("ollama") == "ollama"
 
     def test_normalize_provider(self):
         assert normalize_provider("ollama-cloud") == "ollama-cloud"
@@ -381,7 +381,7 @@ class TestOllamaCloudProvidersNew:
 
     def test_alias_resolves(self):
         from hermes_cli.providers import normalize_provider as np
-        assert np("ollama") == "custom"  # bare "ollama" = local
+        assert np("ollama") == "ollama"  # bare "ollama" = first-class local provider
         assert np("ollama-cloud") == "ollama-cloud"
 
     def test_label_override(self):
