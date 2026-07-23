@@ -92,6 +92,22 @@ def _ollama_get(base_url: str, path: str, api_key: str = "",
         return None
 
 
+def _ollama_post(base_url: str, path: str, payload: dict, api_key: str = "",
+                 timeout: float = 600.0) -> Optional[dict]:
+    """POST to an Ollama JSON endpoint; None on any error. Long default timeout
+    because ``/api/generate`` is a real generation (the dyno's timed roll)."""
+    import httpx
+    from agent.model_metadata import _auth_headers
+    try:
+        with httpx.Client(timeout=timeout, headers=_auth_headers(api_key)) as client:
+            resp = client.post(f"{_ollama_root(base_url)}{path}", json=payload)
+            if resp.status_code != 200:
+                return None
+            return resp.json()
+    except Exception:
+        return None
+
+
 def _nvidia_smi() -> str:
     try:
         out = subprocess.run(
@@ -211,6 +227,42 @@ def server_version(base_url: str, api_key: str = "") -> Optional[str]:
     """This Ollama server's version string, or None if it was unreachable."""
     data = _ollama_get(base_url, "/api/version", api_key)
     return data.get("version") if data else None
+
+
+def unload_all(base_url: str, api_key: str = "") -> None:
+    """Clear the field: ask this Ollama to release every resident model.
+
+    Used by the dyno before each timed roll so one model is measured at a time
+    (the "one mouth eats at a time" discipline) and a stale resident model can't
+    pollute the split reading.
+    """
+    for m in loaded_split(base_url, api_key=api_key):
+        _ollama_post(base_url, "/api/generate",
+                     {"model": m["model"], "keep_alive": 0, "prompt": ""},
+                     api_key=api_key, timeout=120.0)
+
+
+def generate_raw(base_url: str, model: str, prompt: str, num_ctx: int,
+                 num_predict: int = 120, keep_alive: str = "30s",
+                 num_gpu: Optional[int] = None, images: Optional[list] = None,
+                 api_key: str = "", timeout: float = 600.0) -> Optional[dict]:
+    """One raw, non-streamed generation, returning Ollama's full reply + timings.
+
+    The everyday chat path hands back only text; the dyno needs ``eval_count`` /
+    ``eval_duration`` (and the prefill pair) to compute honest tok/s, so it comes
+    here for the unabridged answer. ``num_gpu`` pins an explicit layer split
+    (None leaves it to Ollama's splitter). Returns None on any error, so the
+    sweep skips a point the model can't run instead of recording a false zero.
+    """
+    options: dict[str, Any] = {"num_ctx": num_ctx, "num_predict": num_predict,
+                               "temperature": 0.3}
+    if num_gpu is not None:
+        options["num_gpu"] = num_gpu
+    payload: dict[str, Any] = {"model": model, "prompt": prompt, "stream": False,
+                               "keep_alive": keep_alive, "options": options}
+    if images:
+        payload["images"] = list(images)
+    return _ollama_post(base_url, "/api/generate", payload, api_key=api_key, timeout=timeout)
 
 
 # --- judgment: pure reasoning over a measured power curve -----------------------

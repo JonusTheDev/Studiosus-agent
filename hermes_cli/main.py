@@ -296,6 +296,7 @@ from hermes_cli.subcommands.status import build_status_parser
 from hermes_cli.subcommands.webhook import build_webhook_parser
 from hermes_cli.subcommands.hooks import build_hooks_parser
 from hermes_cli.subcommands.doctor import build_doctor_parser
+from hermes_cli.subcommands.dyno import build_dyno_parser
 from hermes_cli.subcommands.security import build_security_parser
 from hermes_cli.subcommands.dump import build_dump_parser
 from hermes_cli.subcommands.debug import build_debug_parser
@@ -12648,6 +12649,13 @@ def cmd_prompt_size(args):
     _impl(args)
 
 
+def cmd_dyno(args):
+    """Benchmark a local Ollama model's VRAM power curve for the Governor."""
+    from hermes_cli.dyno_cmd import cmd_dyno as _impl
+
+    return _impl(args)
+
+
 def cmd_logs(args):
     """View and filter Hermes log files."""
     from hermes_cli.logs import tail_log, list_logs
@@ -13513,6 +13521,11 @@ def main():
     # doctor command  (parser built in hermes_cli/subcommands/doctor.py)
     # =========================================================================
     build_doctor_parser(subparsers, cmd_doctor=cmd_doctor)
+
+    # =========================================================================
+    # dyno command  (parser built in hermes_cli/subcommands/dyno.py)
+    # =========================================================================
+    build_dyno_parser(subparsers, cmd_dyno=cmd_dyno)
 
     # =========================================================================
     # security command — on-demand supply-chain audit
