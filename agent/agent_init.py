@@ -2088,26 +2088,57 @@ def init_agent(
                 agent._ollama_num_ctx = _detected
         except Exception as exc:
             _ra().logger.debug("Ollama num_ctx detection failed: %s", exc)
-    # Cap auto-detected ollama_num_ctx to the user's explicit context_length.
-    # Without this, GGUF metadata can advertise 256K+ which Ollama honours
-    # by allocating that much VRAM — blowing up small GPUs even though the
-    # user explicitly set a smaller context_length in config.yaml.
-    if (
-        agent._ollama_num_ctx
-        and _config_context_length
-        and _ollama_num_ctx_override is None  # don't override explicit ollama_num_ctx
-        and agent._ollama_num_ctx > _config_context_length
-    ):
-        _ra().logger.info(
-            "Ollama num_ctx capped: %d -> %d (model.context_length override)",
-            agent._ollama_num_ctx, _config_context_length,
-        )
-        agent._ollama_num_ctx = _config_context_length
+    # ── Governor: keep local Ollama inside the GPU's power band ──
+    # Ported from Studiosus (agent/governor.py). Measures real VRAM residency and
+    # caps num_ctx to what actually holds the GPU, refuses an uninstalled model
+    # (loud, not silent-empty output), and never lets a spill to system RAM happen
+    # silently. Local Ollama only, and fail-open — a governor hiccup must never
+    # break a working setup. Supersedes the old static context_length cap: the
+    # ceiling is now applied inside the governor (out loud), alongside the
+    # measured spill guard and the tool-use floor reconciliation.
+    # Run for any local endpoint — not only when a num_ctx was detected — so an
+    # absent model is refused loudly even though detection returned nothing for
+    # it (an unpulled model /api/show-404s, which is exactly the silent failure
+    # the refuse-if-absent guard exists to catch). Non-Ollama local servers are
+    # no-op'd cheaply inside the governor.
+    _governor_warnings: list[str] = []
+    if agent.base_url and is_local_endpoint(agent.base_url):
+        _gov = None
+        try:
+            from agent import governor as _governor
+            _key_for_ollama = agent.api_key if isinstance(agent.api_key, str) else ""
+            _gov = _governor.resolve_local_num_ctx(
+                model=agent.model,
+                base_url=agent.base_url,
+                api_key=_key_for_ollama or "",
+                requested_ctx=agent._ollama_num_ctx,
+                # An explicit model.ollama_num_ctx is the farmer's decree; without
+                # one, model.context_length is the ceiling.
+                ceiling=_config_context_length if _ollama_num_ctx_override is None else None,
+                decree=_ollama_num_ctx_override,
+                tool_use_floor=MINIMUM_CONTEXT_LENGTH,
+                logger_obj=_ra().logger,
+            )
+        except Exception as exc:  # fail-open — never break init on a governor bug
+            _ra().logger.debug("Governor pre-flight skipped: %s", exc)
+            _gov = None
+        if _gov is not None:
+            if _gov.refusal:
+                raise ValueError(
+                    f"Ollama: {_gov.refusal}. Pull the model in Ollama (e.g. "
+                    f"`ollama pull <model>`) or choose an installed one with "
+                    f"`hermes model`."
+                )
+            if _gov.safe_ctx:
+                agent._ollama_num_ctx = _gov.safe_ctx
+            _governor_warnings = _gov.warnings
     if agent._ollama_num_ctx and not agent.quiet_mode:
         _ra().logger.info(
-            "Ollama num_ctx: will request %d tokens (model max from /api/show)",
+            "Ollama num_ctx: will request %d tokens",
             agent._ollama_num_ctx,
         )
+    for _w in _governor_warnings:
+        _ra().logger.warning("Governor: %s", _w)
 
     # Codex gpt-5.x autoraise notice: show at most once per profile/config
     # state. Without the persisted marker the notice re-fires on every agent
@@ -2150,6 +2181,18 @@ def init_agent(
     # through status_callback on the first turn (Telegram/Discord/Slack/etc.).
     if _show_autoraise_notice:
         agent._compression_warning = _build_codex_gpt5_autoraise_notice(_autoraise)
+
+    # Governor: surface any num_ctx cap / spill warning out loud — printed inline
+    # for CLI users and stashed in _compression_warning for gateway replay on the
+    # first turn (same channel as the autoraise notice above).
+    if _governor_warnings:
+        _gov_text = "\n".join(f"⚙️  Governor: {w}" for w in _governor_warnings)
+        if not agent.quiet_mode:
+            print(_gov_text)
+        agent._compression_warning = (
+            f"{agent._compression_warning}\n\n{_gov_text}"
+            if agent._compression_warning else _gov_text
+        )
 
     # Mark shown so repeated inits in this profile (e.g. every gateway message)
     # stay silent. Recorded once, whether the notice went to the CLI print or
