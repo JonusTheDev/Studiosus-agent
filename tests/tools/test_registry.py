@@ -446,6 +446,63 @@ class TestEmojiMetadata:
         assert reg.get_emoji("t") == "⚡"
 
 
+class TestSeverityMetadata:
+    """Per-tool action-severity tier: register(severity=...) + get_severity."""
+
+    def test_self_declared_severity_roundtrips(self):
+        reg = ToolRegistry()
+        reg.register(
+            name="t", toolset="s", schema=_make_schema(),
+            handler=_dummy_handler, severity="severe",
+        )
+        assert reg._tools["t"].severity == "severe"
+        assert reg.get_severity("t") == "severe"
+
+    def test_get_severity_falls_back_to_default_map(self):
+        # A tool registered with no explicit severity resolves via the
+        # tool_severity.DEFAULT_SEVERITY map keyed by name.
+        reg = ToolRegistry()
+        reg.register(
+            name="web_search", toolset="web", schema=_make_schema("web_search"),
+            handler=_dummy_handler,
+        )
+        assert reg.get_severity("web_search") == "benign"
+
+    def test_get_severity_unknown_tool_is_moderate(self):
+        reg = ToolRegistry()
+        # Unregistered and not in the default map -> UNKNOWN_DEFAULT (moderate).
+        assert reg.get_severity("totally_unknown_tool") == "moderate"
+
+    def test_get_severity_normalizes_junk_self_declared(self):
+        reg = ToolRegistry()
+        reg.register(
+            name="t", toolset="s", schema=_make_schema(),
+            handler=_dummy_handler, severity="NONSENSE",
+        )
+        # Junk normalizes to UNKNOWN_DEFAULT rather than raising.
+        assert reg.get_severity("t") == "moderate"
+
+    def test_config_override_wins_over_default_and_declared(self):
+        reg = ToolRegistry()
+        reg.register(
+            name="web_search", toolset="web", schema=_make_schema("web_search"),
+            handler=_dummy_handler, severity="benign",
+        )
+        with patch(
+            "hermes_cli.config.load_config_readonly",
+            return_value={"approvals": {"severity_overrides": {"web_search": "severe"}}},
+        ):
+            assert reg.get_severity("web_search") == "severe"
+
+    def test_severity_kwarg_defaults_none(self):
+        reg = ToolRegistry()
+        reg.register(
+            name="t", toolset="s", schema=_make_schema(),
+            handler=_dummy_handler,
+        )
+        assert reg._tools["t"].severity is None
+
+
 class TestEntryLookup:
     def test_get_entry_returns_registered_entry(self):
         reg = ToolRegistry()

@@ -68,7 +68,7 @@ from agent.trajectory import has_incomplete_scratchpad
 from agent.usage_pricing import estimate_usage_cost, normalize_usage
 from hermes_constants import PARTIAL_STREAM_STUB_ID
 from hermes_logging import set_session_context
-from tools.skill_provenance import set_current_write_origin
+from tools.skill_provenance import set_current_write_origin, set_current_review_kind
 from utils import base_url_host_matches, env_var_enabled
 
 logger = logging.getLogger(__name__)
@@ -649,6 +649,7 @@ def run_conversation(
         summarize_user_message_for_log=_summarize_user_message_for_log,
         set_session_context=set_session_context,
         set_current_write_origin=set_current_write_origin,
+        set_current_review_kind=set_current_review_kind,
         ra=_ra,
     )
     user_message = _ctx.user_message
@@ -666,6 +667,15 @@ def run_conversation(
     # Commentary deduplication spans all provider continuations and tool calls
     # within one user turn, but must not suppress the same phrase next turn.
     agent._delivered_interim_texts = set()
+
+    # Per-turn generation accounting for the Dyno live-throughput sampler
+    # (agent/dyno_history.py). Summed across this turn's model calls only —
+    # api_duration is the model call latency, NOT tool time — so tokens/seconds
+    # is a real generation-throughput proxy, not a wall-clock figure skewed by
+    # tool execution. Reset here, accumulated at the usage block, read at
+    # finalize (turn_finalizer.py). Guarded/local-only; zero extra cost.
+    agent._turn_gen_tokens = 0
+    agent._turn_gen_seconds = 0.0
 
     # Main conversation loop counters (pure locals consumed by the loop below).
     api_call_count = 0
@@ -2240,6 +2250,13 @@ def run_conversation(
                     agent.session_cache_read_tokens += canonical_usage.cache_read_tokens
                     agent.session_cache_write_tokens += canonical_usage.cache_write_tokens
                     agent.session_reasoning_tokens += canonical_usage.reasoning_tokens
+
+                    # Per-turn generation throughput accounting (Dyno live
+                    # sampler, read at finalize). Sum generation tokens over
+                    # generation seconds only; api_duration excludes tool time.
+                    if completion_tokens and api_duration and api_duration > 0:
+                        agent._turn_gen_tokens = getattr(agent, "_turn_gen_tokens", 0) + completion_tokens
+                        agent._turn_gen_seconds = getattr(agent, "_turn_gen_seconds", 0.0) + api_duration
 
                     # Log API call details for debugging/observability
                     _cache_pct = ""

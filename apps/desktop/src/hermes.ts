@@ -15,6 +15,7 @@ import type {
   CronJobUpdates,
   CuratorStatusResponse,
   DebugShareResponse,
+  DynoReport,
   ElevenLabsVoicesResponse,
   EnvVarInfo,
   HermesConfig,
@@ -105,6 +106,14 @@ export type {
   CronJobUpdates,
   CuratorStatusResponse,
   DebugShareResponse,
+  DynoCurvePoint,
+  DynoFlameStatus,
+  DynoKpi,
+  DynoLiveSummary,
+  DynoModelRow,
+  DynoModelStatus,
+  DynoPowerBlock,
+  DynoReport,
   ElevenLabsVoice,
   ElevenLabsVoicesResponse,
   EnvVarInfo,
@@ -712,6 +721,19 @@ export function getStarmapGraph(): Promise<StarmapGraph> {
     // Backend REST contract — stays /api/learning even though the UI feature is
     // now "star map". Renaming this would break against an un-upgraded backend.
     path: '/api/learning/graph'
+  })
+}
+
+/** Dyno KPI report for the model-details rail: per local model, bench KPIs,
+ *  the full power curve, auto-derived specialties, live observed-throughput
+ *  history, and running-process status. `model` is the session's active model
+ *  (drives the running-process header); omit for the configured default. */
+export function getModelDyno(model?: string): Promise<DynoReport> {
+  const path = model ? `/api/model/dyno?model=${encodeURIComponent(model)}` : '/api/model/dyno'
+
+  return window.hermesDesktop.api<DynoReport>({
+    ...profileScoped(),
+    path
   })
 }
 

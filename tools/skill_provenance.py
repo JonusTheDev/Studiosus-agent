@@ -32,6 +32,7 @@ Usage:
 """
 
 import contextvars
+from typing import Optional
 
 
 _write_origin: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -76,3 +77,50 @@ def is_background_review() -> bool:
     """Convenience: True iff the current write origin is the background
     review fork."""
     return get_current_write_origin() == BACKGROUND_REVIEW
+
+
+# ---------------------------------------------------------------------------
+# Review kind — which autonomous fork is running, independent of write origin.
+#
+# Two distinct forks both set _memory_write_origin="background_review" (so
+# every existing origin-based guard above, and tools/write_approval.py's
+# separate approval gate, keeps treating them identically — that plumbing is
+# deliberately untouched). But they warrant different rules for the family
+# covenant (Studiosus heart Phase D, agent/earned_skills.py): the interval-
+# nudged skill-review fork (agent/turn_finalizer.py -> agent/background_review.py)
+# invents brand-new skills from a single session's observation, while the
+# Curator's consolidation fork (agent/curator.py) only reorganizes/merges
+# skills that already exist and were already vetted. The family covenant
+# governs new claims, so only the former is in its scope.
+# ---------------------------------------------------------------------------
+
+_review_kind: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "skill_review_kind",
+    default=None,
+)
+
+REVIEW_KIND_SKILL = "skill_review"            # turn_finalizer's interval nudge
+REVIEW_KIND_CURATOR = "curator_consolidation"  # the Curator's own fork
+
+
+def set_current_review_kind(kind: Optional[str]) -> contextvars.Token:
+    """Bind the active review kind to the current context."""
+    return _review_kind.set(kind or None)
+
+
+def reset_current_review_kind(token: contextvars.Token) -> None:
+    """Restore the prior review-kind context."""
+    _review_kind.reset(token)
+
+
+def get_current_review_kind() -> Optional[str]:
+    """The active review kind: None (foreground), REVIEW_KIND_SKILL, or
+    REVIEW_KIND_CURATOR."""
+    return _review_kind.get()
+
+
+def is_family_covenant_scope() -> bool:
+    """True only for the interval-nudged skill-review fork — the one path
+    the family covenant (Phase D) governs. Foreground turns and the
+    Curator's consolidation fork are exempt."""
+    return is_background_review() and get_current_review_kind() == REVIEW_KIND_SKILL

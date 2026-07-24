@@ -375,6 +375,7 @@ def test_chat_multimodal_note_persists_clean_input_once(tmp_path, monkeypatch):
             ),
             set_session_context=lambda _session_id: None,
             set_current_write_origin=lambda _origin: None,
+            set_current_review_kind=lambda _kind: None,
             ra=lambda: types.SimpleNamespace(_set_interrupt=lambda *_args: None),
         )
         agent._apply_persist_user_message_override(context.messages)

@@ -12,12 +12,20 @@ type of task* based on proven experience. General memory (MEMORY.md, USER.md) is
 broad and declarative. Skills are narrow and actionable.
 
 Actions:
-  create     -- Create a new skill (SKILL.md + directory structure)
-  edit       -- Replace the SKILL.md content of a user skill (full rewrite)
-  patch      -- Targeted find-and-replace within SKILL.md or any supporting file
-  delete     -- Remove a user skill entirely
-  write_file -- Add/overwrite a supporting file (reference, template, script, asset)
-  remove_file-- Remove a supporting file from a user skill
+  create        -- Create a new skill (SKILL.md + directory structure)
+  edit          -- Replace the SKILL.md content of a user skill (full rewrite)
+  patch         -- Targeted find-and-replace within SKILL.md or any supporting file
+  delete        -- Remove a user skill entirely
+  write_file    -- Add/overwrite a supporting file (reference, template, script, asset)
+  remove_file   -- Remove a supporting file from a user skill
+  list_families -- Read-only: which tags have a ready family-covenant (Phase D)
+                   skill available, per agent.earned_skills.gather_families()
+
+An autonomous self-improvement pass creating a *new* skill (as opposed to a
+foreground, user-directed create) is additionally gated behind the family
+covenant when the Studiosus heart is enabled (HERMES_SOUL + HERMES_CHRONICLE):
+call list_families first and pass family_tag=<a ready tag> on create. See
+tools/skill_provenance.py and agent/earned_skills.py.
 
 Directory layout for user skills:
     ~/.hermes/skills/
@@ -433,6 +441,95 @@ def _background_review_preflight(action: str, name: str) -> Optional[Dict[str, A
     if not existing:
         return None
     return _background_review_write_guard(name, existing["path"], action)
+
+
+def _heart_covenant_active() -> bool:
+    """True when both HERMES_SOUL and HERMES_CHRONICLE are enabled, i.e. the
+    family covenant (Phase D, agent/earned_skills.py) has real data to check
+    against. Installs that never opted into the heart keep today's ungated
+    native skill creation — the covenant only ever tightens behavior for
+    installs that turned it on."""
+    try:
+        from agent import soul, chronicle
+        return soul.soul_enabled() and chronicle.chronicle_enabled()
+    except Exception:
+        return False
+
+
+def _list_families() -> Dict[str, Any]:
+    """Read-only: which tags could license a family-covenant skill creation
+    right now, per agent.earned_skills.gather_families(). The interval-nudged
+    skill-review fork calls this before attempting a create."""
+    if not _heart_covenant_active():
+        return {
+            "success": True,
+            "covenant_active": False,
+            "families": [],
+            "note": (
+                "The Studiosus heart (HERMES_SOUL + HERMES_CHRONICLE) is not "
+                "enabled, so the family covenant does not apply here — "
+                "create native skills as usual."
+            ),
+        }
+    from agent import earned_skills
+    families = earned_skills.gather_families()
+    return {
+        "success": True,
+        "covenant_active": True,
+        "families": [
+            {
+                "tag": f["tag"],
+                "episode_count": len(f["episodes"]),
+                "lesson_count": len(f["lessons"]),
+            }
+            for f in families
+        ],
+    }
+
+
+def _family_covenant_guard(name: str, family_tag: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Gate native skill creation behind Phase D's family covenant, but only
+    for the interval-nudged skill-review fork (agent/background_review.py) —
+    foreground (user-directed) creates and the Curator's own consolidation
+    fork (reorganizing already-vetted skills, not inventing new ones) are
+    exempt by construction. Reuses agent.earned_skills.gather_families() —
+    the same ≥3-verifiably-complete-episodes-sharing-a-tag check that already
+    governs the earned-skills shelf — so both shelves obey one law.
+    """
+    try:
+        from tools.skill_provenance import is_family_covenant_scope
+        if not is_family_covenant_scope():
+            return None
+    except Exception:
+        return None
+
+    if not _heart_covenant_active():
+        return None  # not opted into the heart: today's ungated behavior
+
+    if not family_tag:
+        return {
+            "success": False,
+            "error": (
+                f"Refusing autonomous create for skill '{name}': the family "
+                "covenant is active (HERMES_SOUL + HERMES_CHRONICLE enabled). "
+                "Call skill_manage(action='list_families') first, then pass "
+                "family_tag=<a ready tag> on create."
+            ),
+        }
+
+    from agent import earned_skills
+    ready_tags = {f["tag"] for f in earned_skills.gather_families()}
+    if family_tag not in ready_tags:
+        return {
+            "success": False,
+            "error": (
+                f"Refusing autonomous create for skill '{name}': no family of "
+                f"≥{earned_skills.MIN_FAMILY} complete episodes yet supports "
+                f"the tag '{family_tag}' — an empty hand beats a false card. "
+                "Call skill_manage(action='list_families') to see what is ready."
+            ),
+        }
+    return None
 
 
 def _curator_consolidation_delete_guard(
@@ -1348,15 +1445,24 @@ def skill_manage(
     new_string: str = None,
     replace_all: bool = False,
     absorbed_into: str = None,
+    family_tag: str = None,
 ) -> str:
     """
     Manage user-created skills. Dispatches to the appropriate action handler.
 
     Returns JSON string with results.
     """
+    if action == "list_families":
+        return json.dumps(_list_families(), ensure_ascii=False)
+
     preflight = _background_review_preflight(action, name)
     if preflight is not None:
         return json.dumps(preflight, ensure_ascii=False)
+
+    if action == "create":
+        covenant_block = _family_covenant_guard(name, family_tag)
+        if covenant_block is not None:
+            return json.dumps(covenant_block, ensure_ascii=False)
 
     # Approval gate: when on, stages the write for review (skills are too large
     # to review inline, so they always stage regardless of origin); when off
@@ -1404,7 +1510,7 @@ def skill_manage(
         result = _remove_file(name, file_path)
 
     else:
-        result = {"success": False, "error": f"Unknown action '{action}'. Use: create, edit, patch, delete, write_file, remove_file"}
+        result = {"success": False, "error": f"Unknown action '{action}'. Use: create, edit, patch, delete, write_file, remove_file, list_families"}
 
     if result.get("success"):
         try:
@@ -1479,14 +1585,15 @@ SKILL_MANAGE_SCHEMA = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["create", "patch", "edit", "delete", "write_file", "remove_file"],
+                "enum": ["create", "patch", "edit", "delete", "write_file", "remove_file", "list_families"],
                 "description": "The action to perform."
             },
             "name": {
                 "type": "string",
                 "description": (
                     "Skill name (lowercase, hyphens/underscores, max 64 chars). "
-                    "Must match an existing skill for patch/edit/delete/write_file/remove_file."
+                    "Must match an existing skill for patch/edit/delete/write_file/remove_file. "
+                    "Ignored (pass an empty string) for 'list_families'."
                 )
             },
             "content": {
@@ -1551,6 +1658,20 @@ SKILL_MANAGE_SCHEMA = {
                     "rewriting) will have to guess at intent."
                 )
             },
+            "family_tag": {
+                "type": "string",
+                "description": (
+                    "Only meaningful for 'create' during an autonomous "
+                    "self-improvement pass, and only when the Studiosus heart "
+                    "(HERMES_SOUL + HERMES_CHRONICLE) is enabled: names the tag "
+                    "of a ready family from skill_manage(action='list_families') "
+                    "— a skill may only be invented from a family of ≥3 of your "
+                    "own episodes that truly sealed complete, sharing that tag. "
+                    "Call list_families first; omit this arg entirely when "
+                    "creating in the foreground or when list_families reports "
+                    "the covenant is not active."
+                )
+            },
         },
         "required": ["action", "name"],
     },
@@ -1574,6 +1695,7 @@ registry.register(
         old_string=args.get("old_string"),
         new_string=args.get("new_string"),
         replace_all=args.get("replace_all", False),
-        absorbed_into=args.get("absorbed_into")),
+        absorbed_into=args.get("absorbed_into"),
+        family_tag=args.get("family_tag")),
     emoji="📝",
 )

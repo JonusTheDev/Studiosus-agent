@@ -6108,6 +6108,72 @@ class AIAgent:
         self._set_tool_guardrail_halt(decision)
         return toolguard_synthetic_result(decision)
 
+    def _tool_severity_gate(self, function_name: str, *, approval_callback=None):
+        """Gate a SEVERE-tier tool through the human-approval gate.
+
+        Returns a block-result JSON string to REFUSE the call, or ``None`` to
+        let it proceed. This is the tool-severity-tiers feature
+        (``tools/tool_severity.py``, ``docs/studiosus-heart.md``): the previously
+        ungated severe tools (delegate_task, cronjob, ha_call_service,
+        computer_use, external message sends, form-mutating browser ops …) now
+        ask for confirmation — reusing the SAME per-tool gate the plugin
+        escalation path uses (``tools.approval.request_tool_approval``: no new
+        gate machinery, honoring the "resist gate accretion" lesson).
+
+        No-op unless the operator opted in (``approvals.severity_tiers`` config
+        or ``HERMES_SECURITY=1``). No-op for benign/moderate tiers, and for the
+        self-gated exempt set (terminal/execute_code/process already reach the
+        finer command-level gate — never double-prompt them).
+        """
+        # Enablement: config key is canonical; env var is a launcher convenience
+        # (Studiosus.bat can light it alongside HERMES_SOUL etc.).
+        try:
+            enabled = is_truthy_value(os.environ.get("HERMES_SECURITY"))
+            if not enabled:
+                # Read-only fast path: this runs for EVERY tool call, so avoid
+                # load_config()'s per-call full-config deepcopy (we only read).
+                from hermes_cli.config import load_config_readonly, cfg_get
+                enabled = bool(cfg_get(load_config_readonly(), "approvals",
+                                       "severity_tiers", default=False))
+        except Exception:
+            enabled = False
+        if not enabled:
+            return None
+
+        try:
+            from tools import tool_severity as _sev
+            if function_name in _sev.SELF_GATED_EXEMPT:
+                return None
+            from tools.registry import registry as _registry
+            if _registry.get_severity(function_name) != _sev.SEVERE:
+                return None
+        except Exception:
+            return None
+
+        try:
+            from tools.approval import request_tool_approval
+            reason = (
+                f"'{function_name}' is a high-severity tool (executes, actuates, "
+                "or causes an irreversible external side effect). Approve this "
+                "call?"
+            )
+            decision = request_tool_approval(
+                function_name,
+                reason,
+                rule_key=f"severity:{function_name}",
+                approval_callback=approval_callback,
+            )
+        except Exception as exc:
+            logger.debug("severity gate error for %s: %s", function_name, exc)
+            return None  # fail open on gate machinery error — do not wedge a turn
+
+        if isinstance(decision, dict) and decision.get("approved") is False:
+            msg = decision.get("message") or (
+                f"Tool '{function_name}' was not approved (severity gate)."
+            )
+            return json.dumps({"error": msg}, ensure_ascii=False)
+        return None
+
     def _execute_tool_calls(self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
         """Execute tool calls from the assistant message and append results to messages.
 

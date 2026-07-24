@@ -5655,6 +5655,61 @@ class TestModelInfoEndpoint:
         assert data["auto_context_length"] == 0
 
 
+class TestModelDynoEndpoint:
+    """Tests for GET /api/model/dyno — the model-details rail payload."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        try:
+            from starlette.testclient import TestClient
+        except ImportError:
+            pytest.skip("fastapi/starlette not installed")
+        from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+        self.client = TestClient(app)
+        self.client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
+
+    def test_returns_report_contract(self):
+        fake = {
+            "host": "http://localhost:11434", "reachable": True,
+            "current_model": "qwen3.6:latest", "flame": {"ready": True},
+            "models": [{"model": "qwen3.6:latest", "benched": True,
+                        "kpi": {"tok_s_at_64k": 50.2}}],
+        }
+        with patch("agent.dyno_report.build_model_report", return_value=fake) as m:
+            resp = self.client.get("/api/model/dyno?model=qwen3.6:latest")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["reachable"] is True
+        assert data["models"][0]["kpi"]["tok_s_at_64k"] == 50.2
+        # The active model is threaded through to the builder.
+        assert m.call_args.kwargs["current_model"] == "qwen3.6:latest"
+
+    def test_unreachable_host_is_200_empty_not_500(self):
+        empty = {"host": "http://localhost:11434", "reachable": False,
+                 "models": [], "flame": None}
+        with patch("agent.dyno_report.build_model_report", return_value=empty):
+            resp = self.client.get("/api/model/dyno")
+        assert resp.status_code == 200
+        assert resp.json()["models"] == []
+
+    def test_builder_failure_is_500(self):
+        with patch("agent.dyno_report.build_model_report",
+                   side_effect=RuntimeError("boom")):
+            resp = self.client.get("/api/model/dyno")
+        assert resp.status_code == 500
+
+    def test_falls_back_to_configured_model_when_unspecified(self, monkeypatch):
+        import hermes_cli.web_server as ws
+        monkeypatch.setattr(ws, "load_config", lambda: {
+            "model": {"default": "qwen3.6:latest", "provider": "custom"}
+        })
+        with patch("agent.dyno_report.build_model_report",
+                   return_value={"models": []}) as m:
+            resp = self.client.get("/api/model/dyno")
+        assert resp.status_code == 200
+        assert m.call_args.kwargs["current_model"] == "qwen3.6:latest"
+
+
 # ---------------------------------------------------------------------------
 # Gateway health probe tests
 # ---------------------------------------------------------------------------

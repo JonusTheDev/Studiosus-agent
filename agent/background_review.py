@@ -239,6 +239,15 @@ _SKILL_REVIEW_PROMPT = (
     "codename, library-alone name, or 'fix-X / debug-Y / audit-Z-today' "
     "session artifact. If the proposed name only makes sense for "
     "today's task, it's wrong — fall back to (1), (2), or (3).\n\n"
+    "Before creating (4), call skill_manage(action='list_families'). If it "
+    "reports covenant_active=true: a brand-new skill may only be invented "
+    "from a family of >=3 of your own episodes that truly sealed complete, "
+    "sharing one tag — a skill is earned, never invented in advance. If a "
+    "tag is ready, pass family_tag=<that tag> on create. If no tag is ready "
+    "yet, do NOT create — fall back to (1), (2), or (3), or say 'Nothing to "
+    "save.' if none fit; an empty hand beats a false card. If it reports "
+    "covenant_active=false, the heart isn't enabled here — create freely, "
+    "no family_tag needed, exactly as before.\n\n"
     "User-preference embedding (important): when the user expressed a "
     "style/format/workflow preference, the update belongs in the "
     "SKILL.md body, not just in memory. Memory captures 'who the user "
@@ -326,6 +335,12 @@ _COMBINED_REVIEW_PROMPT = (
     "codename, library-alone name, or 'fix-X / debug-Y' session "
     "artifact. If the name only fits today's task, fall back to (1), "
     "(2), or (3).\n\n"
+    "Before creating (4), call skill_manage(action='list_families'). If "
+    "covenant_active=true: a brand-new skill may only be invented from a "
+    "family of >=3 of your own episodes that truly sealed complete, sharing "
+    "one tag. Ready tag -> pass family_tag=<tag> on create. No tag ready -> "
+    "do NOT create; fall back to (1)/(2)/(3) or 'Nothing to save.' If "
+    "covenant_active=false, create freely as before, no family_tag needed.\n\n"
     "User-preference embedding: when the user complains about how "
     "you handled a task, update the skill that governs that task — "
     "memory alone isn't enough. Memory says 'who the user is and "
@@ -728,6 +743,12 @@ def _run_review_in_thread(
             )
             review_agent._memory_write_origin = "background_review"
             review_agent._memory_write_context = "background_review"
+            # Distinguishes this interval-nudged skill-review fork from the
+            # Curator's own consolidation fork (agent/curator.py) — both share
+            # _memory_write_origin above, but only this one invents brand-new
+            # skills from a single session's observation, so only this one is
+            # in scope for the family covenant (tools/skill_provenance.py).
+            review_agent._skill_review_kind = "skill_review"
             # The review fork pins the parent's cached system prompt and keeps
             # ``tools[]`` byte-identical to the parent so its outbound request
             # hits the same provider cache prefix (see the toolset-parity note

@@ -132,6 +132,7 @@ def build_turn_context(
     summarize_user_message_for_log,
     set_session_context,
     set_current_write_origin,
+    set_current_review_kind,
     ra,
 ) -> TurnContext:
     """Run the once-per-turn setup and return the loop's input context.
@@ -156,6 +157,11 @@ def build_turn_context(
 
     # Bind the skill write-origin ContextVar for this thread.
     set_current_write_origin(getattr(agent, "_memory_write_origin", "assistant_tool"))
+    # Bind which autonomous fork (if any) is running — independent of the
+    # write-origin above, so it can gate the family covenant (Phase D) on
+    # the skill-review fork specifically without touching write_approval.py's
+    # origin-based gate (see tools/skill_provenance.py).
+    set_current_review_kind(getattr(agent, "_skill_review_kind", None))
 
     # Restore the primary runtime if the previous turn activated fallback.
     agent._restore_primary_runtime()

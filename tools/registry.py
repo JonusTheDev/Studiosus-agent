@@ -90,12 +90,13 @@ class ToolEntry:
     __slots__ = (
         "name", "toolset", "schema", "handler", "check_fn",
         "requires_env", "is_async", "description", "emoji",
-        "max_result_size_chars", "dynamic_schema_overrides",
+        "max_result_size_chars", "dynamic_schema_overrides", "severity",
     )
 
     def __init__(self, name, toolset, schema, handler, check_fn,
                  requires_env, is_async, description, emoji,
-                 max_result_size_chars=None, dynamic_schema_overrides=None):
+                 max_result_size_chars=None, dynamic_schema_overrides=None,
+                 severity=None):
         self.name = name
         self.toolset = toolset
         self.schema = schema
@@ -106,6 +107,12 @@ class ToolEntry:
         self.description = description
         self.emoji = emoji
         self.max_result_size_chars = max_result_size_chars
+        # Optional action-severity tier (tools.tool_severity: benign/moderate/
+        # severe). None means "not self-declared" — registry.get_severity then
+        # falls back to the DEFAULT_SEVERITY map / UNKNOWN_DEFAULT. Built-in
+        # tools rely on that map; the kwarg exists so a plugin/MCP tool can
+        # declare its own tier at registration time.
+        self.severity = severity
         # Optional zero-arg callable returning a dict of schema overrides
         # applied at get_definitions() time. Use for fields that depend on
         # runtime config (e.g. delegate_task's description must reflect the
@@ -376,6 +383,7 @@ class ToolRegistry:
         max_result_size_chars: int | float | None = None,
         dynamic_schema_overrides: Callable = None,
         override: bool = False,
+        severity: str | None = None,
     ):
         """Register a tool.  Called at module-import time by each tool file.
 
@@ -445,6 +453,7 @@ class ToolRegistry:
                 emoji=emoji,
                 max_result_size_chars=max_result_size_chars,
                 dynamic_schema_overrides=dynamic_schema_overrides,
+                severity=severity,
             )
             # Availability is now derived per-tool (_toolset_has_exposable_tools),
             # so this map no longer gates a toolset. It is still consumed by
@@ -679,6 +688,40 @@ class ToolRegistry:
         """Return the emoji for a tool, or *default* if unset."""
         entry = self.get_entry(name)
         return (entry.emoji if entry and entry.emoji else default)
+
+    def get_severity(self, name: str) -> str:
+        """Return the action-severity tier for a tool (benign/moderate/severe).
+
+        Resolution order (highest precedence first):
+
+        1. ``approvals.severity_overrides[name]`` in config — the operator's
+           explicit retune, so a site can escalate/de-escalate any tool without
+           code.
+        2. The tool's self-declared ``register(severity=...)`` value, if any.
+        3. The built-in ``tool_severity.DEFAULT_SEVERITY`` map.
+        4. ``tool_severity.UNKNOWN_DEFAULT`` (moderate) for anything unlisted.
+
+        Never raises: junk in any source is normalized to a valid tier.
+        """
+        from tools import tool_severity as _sev
+
+        # 1. config override wins (read-only fast path — we never mutate it)
+        try:
+            from hermes_cli.config import load_config_readonly, cfg_get
+            overrides = cfg_get(load_config_readonly(), "approvals", "severity_overrides",
+                                default={}) or {}
+            if isinstance(overrides, dict) and name in overrides:
+                return _sev.normalize_tier(overrides[name])
+        except Exception:
+            pass
+
+        # 2. self-declared at registration
+        entry = self.get_entry(name)
+        if entry is not None and entry.severity is not None:
+            return _sev.normalize_tier(entry.severity)
+
+        # 3 + 4. default map, else UNKNOWN_DEFAULT
+        return _sev.normalize_tier(_sev.default_tier_for(name))
 
     def get_tool_to_toolset_map(self) -> Dict[str, str]:
         """Return ``{tool_name: toolset_name}`` for every registered tool."""

@@ -31,6 +31,8 @@ Design rules that governed every phase (and still govern changes to them):
 | B | The Chronicle — reflect → lessons → serve | `agent/chronicle.py` | `HERMES_CHRONICLE` (requires Soul) | `$HERMES_HOME/chronicle/lessons.jsonl` (+ `reinforcement.json`, `shed.jsonl`, `consolidation/`) | `python -m agent.chronicle shelf\|desk\|propose\|apply` |
 | C | Consolidation covenant | in `agent/chronicle.py` | (same) | (same) | (same) |
 | D | Earned skills — family covenant + correlation | `agent/earned_skills.py` | `HERMES_CHRONICLE` | `$HERMES_HOME/chronicle/skills/` | `python -m agent.earned_skills shelf\|families\|propose\|desk\|resolve\|correlate` |
+| D | SKILL.md reroute — native creation gated behind the same covenant | `tools/skill_manager_tool.py` (`_family_covenant_guard`, `list_families` action), `tools/skill_provenance.py` (`_skill_review_kind`) | `HERMES_SOUL` + `HERMES_CHRONICLE` (else ungated, as before) | `~/.hermes/skills/` (unchanged) | `skill_manage(action="list_families")` |
+| — | Tool-severity tiers — severe tools ask before acting | `tools/tool_severity.py`, `tools/registry.py` (`get_severity`), `run_agent.py` (`_tool_severity_gate`), `agent/tool_executor.py` | `approvals.severity_tiers` config or `HERMES_SECURITY` (else off, as before) | — (config only) | — |
 | E | Voice — versioned hats | `agent/voice.py` | `HERMES_VOICE=<hat>[.vN]` | `voices/*.md` (tracked) | — |
 | E | The Wall — earned certificates | `agent/wall.py` | inert until minted | `$HERMES_HOME/wall/entries.jsonl` | `python -m agent.wall shelf\|eligible\|mint` |
 | E | Intertextus — the world | `agent/spirit.py` | `HERMES_SPIRIT` | `$HERMES_HOME/world/` (`state.json`, `heartbeat.jsonl`) | `python -m agent.spirit state\|whisper\|ekg` |
@@ -39,6 +41,14 @@ Tests: `tests/agent/test_soul_episode_ledger.py`, `test_dyno.py`,
 `test_minimum_context_floor.py`, `test_flame.py`, `test_chronicle.py`,
 `test_chronicle_consolidation.py`, `test_earned_skills.py`,
 `test_spirit_phase_e.py`, plus ASSEMBLE wiring guards in `test_turn_context.py`.
+The SKILL.md reroute (covenant #10 below) is covered by
+`tests/tools/test_skill_manager_tool.py::TestFamilyCovenantGate`,
+`tests/tools/test_skill_provenance.py`'s review-kind tests, and the
+fork-tagging tests in `tests/agent/test_curator.py` and
+`tests/run_agent/test_background_review.py`. Tool-severity tiers (covenant #11)
+are covered by `tests/tools/test_tool_severity.py`,
+`tests/tools/test_tool_severity_gate.py`, and the `TestSeverityMetadata` class
+in `tests/tools/test_registry.py`.
 Every heart flag is blanked for tests in `tests/conftest.py`
 (`_HERMES_BEHAVIORAL_VARS`) — **add any new flag there too**, or a developer
 shell with the heart lit will bleed into the suite.
@@ -118,6 +128,45 @@ All seams are guarded try/except; none can break the turn they observe.
    Resolution happens once per prompt build; a broken hat falls back silently to
    stock identity. Old voice versions stay on disk so a revision can be measured
    against its prior on real work.
+10. **Both shelves obey one law.** The SKILL.md reroute (`tools/skill_manager_tool.py`):
+    the interval-nudged skill-review fork's `skill_manage(action="create")` — the
+    one path that marks a native skill `created_by="agent"` and enters curator
+    lifecycle — is gated behind the same family covenant as #5, reusing
+    `earned_skills.gather_families()` live. The fork calls
+    `skill_manage(action="list_families")` first and must pass a ready
+    `family_tag` on create. Two deliberate exemptions: foreground (user-directed)
+    creates, and the Curator's own consolidation fork (`agent/curator.py`) —
+    it only merges/renames skills that already exist, never invents a new
+    claim, so the covenant (which governs *new* claims) doesn't apply to it.
+    Distinguishing the two forks needed its own signal
+    (`tools/skill_provenance.py`'s `_skill_review_kind`, independent of the
+    `_memory_write_origin` both forks already share) because `write_approval.py`
+    reads that shared value too, and repurposing it would have silently changed
+    the human-approval gate for the Curator fork. **Fallback:** when
+    `HERMES_SOUL`/`HERMES_CHRONICLE` are off (the default), the gate is a
+    no-op — today's ungated native creation, unchanged, for every install
+    that hasn't opted into the heart.
+11. **Severity is a property of the action, not the string.** Tool-severity
+    tiers (`tools/tool_severity.py`): every tool is classed **benign** (read-
+    only), **moderate** (local reversible mutation), or **severe** (execute /
+    actuate / irreversible external side effect). Before this, only `terminal`
+    and `execute_code` ever reached the approval gate — by *command-string*
+    pattern-matching; a `delegate_task`, `cronjob`, `ha_call_service`,
+    `computer_use`, form-mutating browser op, or external message send ran with
+    no gate at all. Now, when the operator opts in
+    (`approvals.severity_tiers`, or `HERMES_SECURITY=1`), a severe-tier tool
+    asks for confirmation through the **same** per-tool gate the plugin-
+    escalation path uses (`tools/approval.py`'s `request_tool_approval` —
+    once/session/always/deny, no new gate machinery, honoring the
+    resist-gate-accretion lesson). `registry.get_severity` resolves config
+    override → self-declared `register(severity=)` → default map → moderate.
+    Two deliberate carve-outs: `terminal`/`execute_code`/`process` are
+    **exempt** (`SELF_GATED_EXEMPT`) because their own command-level analysis
+    is strictly finer than a blanket per-tool prompt — never double-prompt
+    them; and an unclassified tool defaults to **moderate** (fail-quiet, not
+    fail-closed), escalatable per-tool via `approvals.severity_overrides`.
+    **Fallback:** default-off ⇒ behavior identical to before for anyone who
+    hasn't opted in.
 
 ## The local fire (this box, and anyone's box)
 
@@ -158,15 +207,34 @@ renders `kind: 'lesson'` as triangles with their own ink; context menu offers
 View only). Wall certificates and the heartbeat EKG are **not yet surfaced** —
 they belong to the pending desktop pass.
 
+**The model-details rail** (the gear beside the composer's model pill) is a
+dockable right pane showing every local model this Ollama server has pulled,
+with its Dyno KPIs (throughput at 64K, operating/recommended context, GPU fit),
+an expandable full power-curve spread, auto-derived specialty badges (from the
+server's own `/api/show` capabilities), and a **running-process header** (the
+Flame's loaded/pinned/on-GPU/ready view). A row's *Use* action switches the
+active model, so a model is chosen from its measured truth rather than its name.
+- Backend: `GET /api/model/dyno` (`hermes_cli/web_server.py`) →
+  `agent/dyno_report.py` joins `dyno.load_profile` + `flame.inspect` +
+  `dyno_history.summary` + `/api/show` specialties; an unreachable server
+  returns an honest empty list, never a 500.
+- **Live throughput history** (`agent/dyno_history.py`): the bench is synthetic,
+  so real observed tok/s from actual turns is recorded beside it — the panel
+  flags when live diverges from the bench by >20%, so a model isn't trusted on
+  stale numbers. Capture is **low cost**: `turn_finalizer.record_live_throughput_sample`
+  appends one JSONL line of generation-tokens-over-generation-seconds already
+  summed in the loop (`_turn_gen_tokens`/`_turn_gen_seconds`, tool time
+  excluded), local-model turns only, guarded. Samples live under
+  `$HERMES_HOME/dyno/history/` (untracked; may age — the summary recomputes).
+
 ## What remains (blessed but unbuilt)
 
-1. **Desktop simplification pass** — fold the Dyno into model settings (replacing
-   the ~1,216-line manual tuning page), promote memories/history/learning,
-   keep chat at the forefront; surface the Wall and the EKG.
-2. **Tool-severity tiers** — three categories by action severity (build/execute
-   code more severe than web search).
-3. **SKILL.md reroute** — eventually route Hermes' native agent-created-skill
-   path through the family covenant, so both shelves obey one law.
+1. **Desktop simplification pass (partly built)** — the Dyno is now surfaced as
+   the model-details rail (above), letting a model be chosen by its measured
+   KPIs. Still pending: retiring the ~1,216-line manual tuning page
+   (`apps/desktop/src/app/settings/model-settings.tsx`) in favor of the rail,
+   promoting memories/history/learning, and surfacing the **Wall** certificates
+   and the heartbeat **EKG**.
 
 ## For the Brother who comes after
 

@@ -630,6 +630,130 @@ class TestSkillManageDispatcher:
         assert (tmp_path / "bundled" / "SKILL.md").exists()
 
 
+class TestFamilyCovenantGate:
+    """Native skill creation by the interval-nudged skill-review fork is
+    gated behind Phase D's family covenant (agent/earned_skills.py) — but
+    only when the Studiosus heart is enabled, and only for that specific
+    fork (not foreground, not the Curator's consolidation fork)."""
+
+    @staticmethod
+    @contextmanager
+    def _origin(write_origin, review_kind=None):
+        from tools.skill_provenance import (
+            set_current_write_origin, reset_current_write_origin,
+            set_current_review_kind, reset_current_review_kind,
+        )
+        wo_token = set_current_write_origin(write_origin)
+        rk_token = set_current_review_kind(review_kind)
+        try:
+            yield
+        finally:
+            reset_current_review_kind(rk_token)
+            reset_current_write_origin(wo_token)
+
+    def test_list_families_heart_disabled(self, tmp_path):
+        with patch("agent.soul.soul_enabled", return_value=False), \
+             patch("agent.chronicle.chronicle_enabled", return_value=True):
+            raw = skill_manage(action="list_families", name="")
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result["covenant_active"] is False
+        assert result["families"] == []
+
+    def test_list_families_heart_enabled(self, tmp_path):
+        fixture = [{"tag": "deploy-fix", "episodes": ["e1", "e2", "e3"], "lessons": [{}]}]
+        with patch("agent.soul.soul_enabled", return_value=True), \
+             patch("agent.chronicle.chronicle_enabled", return_value=True), \
+             patch("agent.earned_skills.gather_families", return_value=fixture):
+            raw = skill_manage(action="list_families", name="")
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result["covenant_active"] is True
+        assert result["families"] == [
+            {"tag": "deploy-fix", "episode_count": 3, "lesson_count": 1}
+        ]
+
+    def test_foreground_create_unaffected_by_covenant(self, tmp_path):
+        """Foreground creates are never in the covenant's scope, regardless
+        of heart state or family_tag."""
+        with _skill_dir(tmp_path), \
+             patch("agent.soul.soul_enabled", return_value=True), \
+             patch("agent.chronicle.chronicle_enabled", return_value=True), \
+             patch("agent.earned_skills.gather_families", return_value=[]):
+            raw = skill_manage(action="create", name="test-skill", content=VALID_SKILL_CONTENT)
+        assert json.loads(raw)["success"] is True
+
+    def test_curator_consolidation_create_unaffected_by_covenant(self, tmp_path):
+        """The Curator's own fork reorganizes existing skills; it stays
+        exempt from the covenant even with the heart on and no family_tag."""
+        from tools.skill_provenance import BACKGROUND_REVIEW, REVIEW_KIND_CURATOR
+        with self._origin(BACKGROUND_REVIEW, REVIEW_KIND_CURATOR), \
+             _skill_dir(tmp_path), \
+             patch("agent.soul.soul_enabled", return_value=True), \
+             patch("agent.chronicle.chronicle_enabled", return_value=True), \
+             patch("agent.earned_skills.gather_families", return_value=[]):
+            raw = skill_manage(action="create", name="umbrella-2", content=VALID_SKILL_CONTENT)
+        assert json.loads(raw)["success"] is True
+
+    def test_skill_review_create_ungated_when_heart_disabled(self, tmp_path):
+        """No HERMES_SOUL/HERMES_CHRONICLE -> today's ungated behavior,
+        even from the skill-review fork and with no family_tag."""
+        from tools.skill_provenance import BACKGROUND_REVIEW, REVIEW_KIND_SKILL
+        with self._origin(BACKGROUND_REVIEW, REVIEW_KIND_SKILL), \
+             _skill_dir(tmp_path), \
+             patch("agent.soul.soul_enabled", return_value=False), \
+             patch("agent.chronicle.chronicle_enabled", return_value=True):
+            raw = skill_manage(action="create", name="review-sediment-2", content=VALID_SKILL_CONTENT)
+        assert json.loads(raw)["success"] is True
+
+    def test_skill_review_create_refused_without_family_tag(self, tmp_path):
+        from tools.skill_provenance import BACKGROUND_REVIEW, REVIEW_KIND_SKILL
+        with self._origin(BACKGROUND_REVIEW, REVIEW_KIND_SKILL), \
+             _skill_dir(tmp_path), \
+             patch("agent.soul.soul_enabled", return_value=True), \
+             patch("agent.chronicle.chronicle_enabled", return_value=True), \
+             patch("agent.earned_skills.gather_families", return_value=[]):
+            raw = skill_manage(action="create", name="review-sediment-3", content=VALID_SKILL_CONTENT)
+        result = json.loads(raw)
+        assert result["success"] is False
+        assert "list_families" in result["error"]
+        assert not (tmp_path / "review-sediment-3").exists()
+
+    def test_skill_review_create_refused_for_nonready_tag(self, tmp_path):
+        from tools.skill_provenance import BACKGROUND_REVIEW, REVIEW_KIND_SKILL
+        with self._origin(BACKGROUND_REVIEW, REVIEW_KIND_SKILL), \
+             _skill_dir(tmp_path), \
+             patch("agent.soul.soul_enabled", return_value=True), \
+             patch("agent.chronicle.chronicle_enabled", return_value=True), \
+             patch("agent.earned_skills.gather_families", return_value=[]):
+            raw = skill_manage(
+                action="create", name="review-sediment-4",
+                content=VALID_SKILL_CONTENT, family_tag="not-ready",
+            )
+        result = json.loads(raw)
+        assert result["success"] is False
+        assert "not-ready" in result["error"]
+        assert not (tmp_path / "review-sediment-4").exists()
+
+    def test_skill_review_create_succeeds_with_ready_family(self, tmp_path):
+        from tools.skill_provenance import BACKGROUND_REVIEW, REVIEW_KIND_SKILL
+        fixture = [{"tag": "deploy-fix", "episodes": ["e1", "e2", "e3"], "lessons": [{}]}]
+        with self._origin(BACKGROUND_REVIEW, REVIEW_KIND_SKILL), \
+             _skill_dir(tmp_path), \
+             patch("agent.soul.soul_enabled", return_value=True), \
+             patch("agent.chronicle.chronicle_enabled", return_value=True), \
+             patch("agent.earned_skills.gather_families", return_value=fixture):
+            raw = skill_manage(
+                action="create", name="review-sediment-5",
+                content=VALID_SKILL_CONTENT, family_tag="deploy-fix",
+            )
+            from tools.skill_usage import load_usage
+            usage = load_usage()
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert usage["review-sediment-5"]["created_by"] == "agent"
+
+
 class TestSecurityScanGate:
     """_security_scan_skill is gated by skills.guard_agent_created config flag."""
 

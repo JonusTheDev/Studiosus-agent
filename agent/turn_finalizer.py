@@ -42,6 +42,54 @@ def _is_pure_tool_call_tail(msg: dict) -> bool:
     return not flatten_message_text(msg.get("content")).strip()
 
 
+def _model_is_local(agent) -> bool:
+    """True when this turn ran against a local Ollama model.
+
+    A model is "local" when it carries a Dyno profile OR the agent's base_url
+    points at this box's Ollama host. Remote/API turns are excluded — Dyno
+    throughput is a local-GPU truth. Never raises.
+    """
+    try:
+        from agent import dyno as _dyno
+        if _dyno.load_profile(agent.model) is not None:
+            return True
+        base = (getattr(agent, "base_url", "") or "").lower()
+        if not base:
+            return False
+        host = _dyno.default_host().lower()
+        host_bare = host.split("://", 1)[-1]
+        return host in base or host_bare in base
+    except Exception:
+        return False
+
+
+def record_live_throughput_sample(agent) -> bool:
+    """Record one observed-throughput sample from this turn, if it was local.
+
+    Low cost: the numbers were already summed in the loop (``_turn_gen_tokens``
+    / ``_turn_gen_seconds`` — generation tokens over generation seconds, tool
+    time excluded). No probe, no second call — one JSONL append via
+    ``agent.dyno_history``. Returns True when a sample was recorded, False when
+    skipped (no generation this turn, or a non-local model). Never raises.
+    """
+    gen_tokens = getattr(agent, "_turn_gen_tokens", 0)
+    gen_seconds = getattr(agent, "_turn_gen_seconds", 0.0)
+    if not (gen_tokens and gen_seconds and gen_seconds > 0):
+        return False
+    if not _model_is_local(agent):
+        return False
+    from agent import dyno as _dyno
+    from agent import dyno_history as _dyno_history
+    num_ctx = _dyno.operating_num_ctx(_dyno.load_profile(agent.model))
+    return _dyno_history.record_sample(
+        agent.model,
+        tok_s=gen_tokens / gen_seconds,
+        num_ctx=num_ctx,
+        source="wallclock",
+        completion_tokens=gen_tokens,
+    )
+
+
 def finalize_turn(
     agent,
     *,
@@ -559,6 +607,14 @@ def finalize_turn(
     # provider before the second message. Actual session-end cleanup is
     # handled by the CLI (atexit / /reset) and gateway (session expiry /
     # _reset_session).
+
+    # The Dyno live-throughput sampler: for a LOCAL model, record one real
+    # observed-throughput sample from this turn's generation. See
+    # :func:`record_live_throughput_sample`. Guarded — never breaks the turn.
+    try:
+        record_live_throughput_sample(agent)
+    except Exception as exc:
+        logger.debug("dyno_history: turn sampling skipped: %s", exc)
 
     # The Soul: record this turn as one sealed episode (off unless HERMES_SOUL
     # is set).  Placed after the response transforms so the ledger records what

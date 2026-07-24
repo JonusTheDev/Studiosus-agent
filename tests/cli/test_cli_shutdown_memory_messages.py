@@ -616,6 +616,7 @@ def test_cli_close_preserves_clean_staged_user_across_noted_worker_turn(tmp_path
         summarize_user_message_for_log=lambda value: value,
         set_session_context=lambda _session_id: None,
         set_current_write_origin=lambda _origin: None,
+        set_current_review_kind=lambda _kind: None,
         ra=lambda: types.SimpleNamespace(_set_interrupt=lambda *_args: None),
     )
     assert worker.messages[-1] is staged

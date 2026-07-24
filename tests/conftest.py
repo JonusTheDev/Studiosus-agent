@@ -215,6 +215,10 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     # tests.
     "HERMES_SPIRIT",
     "HERMES_VOICE",
+    # Tool-severity tiers: with it enabled the severity gate would prompt (or
+    # auto-deny under a non-interactive callback) on every severe-tier tool
+    # call, changing tool-execution behavior under any test that dispatches one.
+    "HERMES_SECURITY",
     # Kanban path/board pins must never leak from a developer shell or
     # dispatched worker into tests; otherwise tests can write fake tasks to
     # the real ~/.hermes/kanban.db instead of the per-test HERMES_HOME.

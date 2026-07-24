@@ -1943,6 +1943,12 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
         # turn_context.py binds this onto the write-origin ContextVar at turn
         # start (see agent/turn_context.py).
         review_agent._memory_write_origin = "background_review"
+        # Distinguishes this consolidation fork from the interval-nudged
+        # skill-review fork (agent/background_review.py) for the family
+        # covenant (Phase D): this fork only merges/renames skills that
+        # already exist and were already vetted, never invents a brand-new
+        # one, so it stays exempt from the covenant's family_tag requirement.
+        review_agent._skill_review_kind = "curator_consolidation"
 
         # Redirect the forked agent's stdout/stderr to /dev/null while it
         # runs so its tool-call chatter doesn't pollute the foreground

@@ -162,6 +162,7 @@ def _build(agent, **overrides):
         summarize_user_message_for_log=lambda s: s,
         set_session_context=lambda _sid: None,
         set_current_write_origin=lambda _o: None,
+        set_current_review_kind=lambda _k: None,
         ra=lambda: types.SimpleNamespace(_set_interrupt=lambda *a, **k: None),
     )
     kwargs.update(overrides)
