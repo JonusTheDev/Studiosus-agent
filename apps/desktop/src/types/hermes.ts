@@ -286,6 +286,105 @@ export interface ModelOptionsResponse {
   providers?: ModelOptionProvider[]
 }
 
+/** One measured point on a model's Dyno power curve. */
+export interface DynoCurvePoint {
+  num_ctx: number
+  tok_s: number
+  prompt_tok_s?: number
+  resident_gb?: number
+  gpu_frac?: number
+  load_s?: number
+  rolls?: number
+  tok_s_min?: number
+  tok_s_max?: number
+}
+
+/** The `power` block of a Dyno profile — the full synthetic-bench spread. */
+export interface DynoPowerBlock {
+  date?: string
+  host?: string
+  gpu?: { name?: string; vram_gb?: number } | null
+  server_env?: { ollama_version?: string; env?: Record<string, string> }
+  min_gpu_frac?: number
+  warmup_rolls?: number
+  curve?: DynoCurvePoint[]
+  recommended_num_ctx?: number | null
+  recommended_tok_s?: number | null
+  recommended_in_band?: boolean
+  recommended_within_noise_of?: number[]
+  fully_fits?: boolean
+}
+
+/** Headline KPI columns derived from the Dyno bench. */
+export interface DynoKpi {
+  tok_s_at_64k: number | null
+  tok_s_at_32k: number | null
+  recommended_num_ctx: number | null
+  recommended_tok_s: number | null
+  recommended_in_band?: boolean
+  fully_fits?: boolean
+}
+
+/** Real observed-throughput history — the live companion to the bench. */
+export interface DynoLiveSummary {
+  samples: number
+  recent_tok_s_avg: number
+  min: number
+  max: number
+  last_seen?: string
+  last_source?: string
+  /** Recent tok/s points for a sparkline. */
+  trend: number[]
+}
+
+/** Running-process status of a model on the local Ollama server. */
+export interface DynoModelStatus {
+  loaded: boolean
+  pinned: boolean
+  gpu_frac: number | null
+  loaded_num_ctx: number | null
+  ready: boolean
+}
+
+/** One row of the model-details rail. */
+export interface DynoModelRow {
+  model: string
+  benched: boolean
+  operating_num_ctx: number | null
+  kpi: DynoKpi
+  profile: DynoPowerBlock | null
+  chosen_because?: string | null
+  /** Auto-derived specialty badges (tools / vision / reasoning / …). */
+  specialties: string[]
+  live: DynoLiveSummary | null
+  status: DynoModelStatus
+}
+
+/** The running-process header — a Flame inspection of the active model. */
+export interface DynoFlameStatus {
+  host?: string
+  model?: string
+  reachable?: boolean
+  installed?: boolean | null
+  loaded?: boolean
+  loaded_num_ctx?: number | null
+  pinned?: boolean
+  gpu_frac?: number | null
+  conflicts?: string[]
+  ready?: boolean
+  blockers?: string[]
+  server_version?: string
+  want_num_ctx?: number | null
+}
+
+export interface DynoReport {
+  host: string
+  reachable: boolean
+  current_model?: string | null
+  flame: DynoFlameStatus | null
+  models: DynoModelRow[]
+}
+
 export interface PaginatedSessions {
   limit: number
   offset: number
@@ -438,11 +537,11 @@ export interface UsageStats {
   total: number
 }
 
-/** One graph node in the star map (learned skill or memory chunk). */
+/** One graph node in the star map (learned skill, memory chunk, or chronicle lesson). */
 export interface StarmapNode {
   id: string
   label: string
-  kind: 'memory' | 'skill'
+  kind: 'lesson' | 'memory' | 'skill'
   memorySource?: 'memory' | 'profile'
   timestamp?: null | number
   category: string
@@ -476,7 +575,21 @@ export interface StarmapGraph {
   edges: StarmapEdge[]
   clusters: StarmapCluster[]
   memory: StarmapMemoryCard[]
+  /** Chronicle lessons — distilled from the agent's own sealed episodes.
+   * Absent on backends that predate the Studiosus graft. */
+  lessons?: StarmapLessonCard[]
   stats: Record<string, unknown>
+}
+
+/** A chronicle lesson rendered as a card beside its graph node. */
+export interface StarmapLessonCard {
+  id: string
+  title: string
+  text: string
+  tags: string[]
+  sourceEpisode?: null | string
+  sourceOutcome?: null | string
+  reinforced: number
 }
 
 export interface ContextUsageCategory {

@@ -14,6 +14,7 @@ import { atom } from 'nanostores'
 import type { CSSProperties } from 'react'
 
 import { ChatPreviewRail } from '@/app/chat/right-rail/preview'
+import { ModelDetailsPanel } from '@/app/model-details'
 import { RightSidebarPane } from '@/app/right-sidebar'
 import { ReviewPane } from '@/app/right-sidebar/review'
 import type { GroupSetter } from '@/app/shell/group-setter'
@@ -140,6 +141,18 @@ export function ReviewPaneContent() {
   return (
     <div className={cn(ZONE_CONTENT, 'flex min-h-0 flex-col [&>aside]:min-h-0 [&>aside]:flex-1')}>
       <ReviewPane key={cwd || 'no-cwd'} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Model details — the Dyno KPI rail (gear beside the composer / $modelDetailsOpen)
+// ---------------------------------------------------------------------------
+
+export function ModelDetailsPaneContent() {
+  return (
+    <div className={cn(ZONE_CONTENT, 'flex min-h-0 flex-col [&>aside]:min-h-0 [&>aside]:flex-1')}>
+      <ModelDetailsPanel />
     </div>
   )
 }

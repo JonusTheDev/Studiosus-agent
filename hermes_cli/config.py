@@ -2676,6 +2676,23 @@ DEFAULT_CONFIG = {
         # false.  TUI has its own modal overlay (HERMES_TUI_NO_CONFIRM=1 to
         # opt out there).
         "destructive_slash_confirm": True,
+        # Tool-severity tiers (tools/tool_severity.py). When true, high-severity
+        # ("severe") tools that have NO command-level gate of their own —
+        # delegate_task, cronjob, ha_call_service, computer_use, form-mutating
+        # browser ops, external message sends, etc. — ask for confirmation
+        # before executing, routed through the same per-tool approval gate the
+        # plugin-escalation path uses (once/session/always/deny). Default off:
+        # zero behavior change until opted in. terminal/execute_code/process are
+        # exempt (their own command analysis is finer). The launcher can also
+        # force this on via HERMES_SECURITY=1.
+        "severity_tiers": False,
+        # Optional per-tool tier overrides: {tool_name: benign|moderate|severe}.
+        # Highest-precedence source in registry.get_severity — escalate or
+        # de-escalate any tool (including MCP/plugin tools) without code. E.g.
+        #   severity_overrides:
+        #     write_file: severe
+        #     some_mcp_tool: severe
+        "severity_overrides": {},
     },
 
     # Permanently allowed dangerous command patterns (added via "always" approval)

@@ -200,6 +200,25 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     "HERMES_EXEC_ASK",
     "HERMES_HOME_MODE",
     "HERMES_AGENT_USE_LEGACY_SESSION_KEYS",
+    # The Soul episode ledger is off by default; a developer shell with it
+    # enabled must not make every test write episodes.
+    "HERMES_SOUL",
+    # Likewise the flame tender: with it enabled, a test that constructs an
+    # agent against a local endpoint would reach out and unload the
+    # developer's resident models.
+    "HERMES_FLAME",
+    # And the Chronicle, which would otherwise spawn background reflections
+    # (real auxiliary model calls) from any test that finalizes a turn.
+    "HERMES_CHRONICLE",
+    # The spirit: with it enabled every finalized turn would move the world
+    # registers, and a voice pin would swap the identity tier under prompt
+    # tests.
+    "HERMES_SPIRIT",
+    "HERMES_VOICE",
+    # Tool-severity tiers: with it enabled the severity gate would prompt (or
+    # auto-deny under a non-interactive callback) on every severe-tier tool
+    # call, changing tool-execution behavior under any test that dispatches one.
+    "HERMES_SECURITY",
     # Kanban path/board pins must never leak from a developer shell or
     # dispatched worker into tests; otherwise tests can write fake tasks to
     # the real ~/.hermes/kanban.db instead of the per-test HERMES_HOME.

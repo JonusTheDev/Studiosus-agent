@@ -42,6 +42,54 @@ def _is_pure_tool_call_tail(msg: dict) -> bool:
     return not flatten_message_text(msg.get("content")).strip()
 
 
+def _model_is_local(agent) -> bool:
+    """True when this turn ran against a local Ollama model.
+
+    A model is "local" when it carries a Dyno profile OR the agent's base_url
+    points at this box's Ollama host. Remote/API turns are excluded — Dyno
+    throughput is a local-GPU truth. Never raises.
+    """
+    try:
+        from agent import dyno as _dyno
+        if _dyno.load_profile(agent.model) is not None:
+            return True
+        base = (getattr(agent, "base_url", "") or "").lower()
+        if not base:
+            return False
+        host = _dyno.default_host().lower()
+        host_bare = host.split("://", 1)[-1]
+        return host in base or host_bare in base
+    except Exception:
+        return False
+
+
+def record_live_throughput_sample(agent) -> bool:
+    """Record one observed-throughput sample from this turn, if it was local.
+
+    Low cost: the numbers were already summed in the loop (``_turn_gen_tokens``
+    / ``_turn_gen_seconds`` — generation tokens over generation seconds, tool
+    time excluded). No probe, no second call — one JSONL append via
+    ``agent.dyno_history``. Returns True when a sample was recorded, False when
+    skipped (no generation this turn, or a non-local model). Never raises.
+    """
+    gen_tokens = getattr(agent, "_turn_gen_tokens", 0)
+    gen_seconds = getattr(agent, "_turn_gen_seconds", 0.0)
+    if not (gen_tokens and gen_seconds and gen_seconds > 0):
+        return False
+    if not _model_is_local(agent):
+        return False
+    from agent import dyno as _dyno
+    from agent import dyno_history as _dyno_history
+    num_ctx = _dyno.operating_num_ctx(_dyno.load_profile(agent.model))
+    return _dyno_history.record_sample(
+        agent.model,
+        tok_s=gen_tokens / gen_seconds,
+        num_ctx=num_ctx,
+        source="wallclock",
+        completion_tokens=gen_tokens,
+    )
+
+
 def finalize_turn(
     agent,
     *,
@@ -559,6 +607,68 @@ def finalize_turn(
     # provider before the second message. Actual session-end cleanup is
     # handled by the CLI (atexit / /reset) and gateway (session expiry /
     # _reset_session).
+
+    # The Dyno live-throughput sampler: for a LOCAL model, record one real
+    # observed-throughput sample from this turn's generation. See
+    # :func:`record_live_throughput_sample`. Guarded — never breaks the turn.
+    try:
+        record_live_throughput_sample(agent)
+    except Exception as exc:
+        logger.debug("dyno_history: turn sampling skipped: %s", exc)
+
+    # The Soul: record this turn as one sealed episode (off unless HERMES_SOUL
+    # is set).  Placed after the response transforms so the ledger records what
+    # was actually delivered, and guarded twice — here and inside record_turn —
+    # because an observer must never be able to break the turn it observes.
+    try:
+        from agent.soul import record_turn as _soul_record_turn
+        _soul_episode_id = _soul_record_turn(
+            turn_id=turn_id,
+            task_id=effective_task_id,
+            session_id=agent.session_id or "",
+            user_message=_summarize_user_message_for_log(user_message),
+            messages=messages,
+            final_response=final_response,
+            completed=completed,
+            failed=failed,
+            interrupted=interrupted,
+            exit_reason=_turn_exit_reason,
+            model=agent.model,
+            platform=getattr(agent, "platform", None) or "",
+            served_lessons=getattr(agent, "_served_lesson_ids", None),
+            served_skills=getattr(agent, "_served_skill_ids", None),
+        )
+        # The spirit: a sealed episode is a new memory, and a new memory moves
+        # the heart — deterministically, by the event table. Only when an
+        # episode truly sealed: no Soul, no memory, no feeling.
+        if _soul_episode_id:
+            try:
+                from agent.soul import turn_outcome as _soul_turn_outcome
+                from agent.spirit import beat as _spirit_beat
+                from agent.spirit import outcome_event as _spirit_outcome_event
+                _ev = _spirit_outcome_event(_soul_turn_outcome(
+                    completed=completed, failed=failed, interrupted=interrupted))
+                if _ev:
+                    _spirit_beat(_ev, episode_id=_soul_episode_id)
+            except Exception:
+                pass  # the world observes the work; it must never break it
+        # REFLECT — distill the sealed episode in the quiet afterwards, on the
+        # auxiliary client and in the background. The response is already
+        # delivered; reflection must never make the user wait for it.
+        if _soul_episode_id:
+            from agent.chronicle import (
+                chronicle_enabled as _chronicle_enabled,
+                spawn_reflection as _spawn_reflection,
+            )
+            if _chronicle_enabled():
+                _spawn_reflection(_soul_episode_id, runtime={
+                    "model": agent.model,
+                    "provider": agent.provider,
+                    "base_url": agent.base_url,
+                    "api_key": agent.api_key if isinstance(agent.api_key, str) else "",
+                })
+    except Exception as exc:
+        logger.warning("soul: record_turn failed: %s", exc)
 
     # Plugin hook: on_session_end
     # Fired at the very end of every run_conversation call.

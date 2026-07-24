@@ -7,6 +7,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import { AudioLines, iconSize, Layers3, Loader2, Square, SteeringWheel, Volume2, VolumeX } from '@/lib/icons'
 import { formatCombo } from '@/lib/keybinds/combo'
 import { cn } from '@/lib/utils'
+import { toggleModelDetails } from '@/store/model-details'
 
 import type { ConversationStatus } from './hooks/use-voice-conversation'
 import { ModelPill } from './model-pill'
@@ -90,6 +91,19 @@ export function ComposerControls({
   return (
     <div className="ml-auto flex shrink-0 items-center gap-(--composer-control-gap)">
       <ModelPill compact={compactModelPill} disabled={disabled} model={state.model} />
+      {/* Gear → the model-details rail: KPI table, live throughput, specialties. */}
+      <Tip label={t.modelDetails.title}>
+        <Button
+          aria-label={t.modelDetails.title}
+          className={GHOST_ICON_BTN}
+          onClick={() => toggleModelDetails()}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <Codicon name="settings-gear" size="0.85rem" />
+        </Button>
+      </Tip>
       {/* While the agent runs and the user is typing, steer takes over the mic's
           slot rather than crowding the row with an extra button. */}
       {canSteer ? (

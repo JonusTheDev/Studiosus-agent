@@ -1271,6 +1271,7 @@ def test_review_fork_runs_under_background_review_origin(curator_env, monkeypatc
             # AIAgent.__init__ normally sets this default; mirror it so the
             # production assignment in _run_llm_review is what flips it.
             self._memory_write_origin = "assistant_tool"
+            self._skill_review_kind = None
             self._memory_nudge_interval = 10
             self._skill_nudge_interval = 10
             self.platform = kwargs.get("platform")
@@ -1280,6 +1281,7 @@ def test_review_fork_runs_under_background_review_origin(curator_env, monkeypatc
             # Capture the origin AT RUN TIME — i.e. after _run_llm_review has
             # finished configuring the fork, which is exactly when it matters.
             captured["write_origin"] = self._memory_write_origin
+            captured["review_kind"] = self._skill_review_kind
             return {"final_response": "no change"}
 
     monkeypatch.setattr("run_agent.AIAgent", _StubAgent)
@@ -1291,6 +1293,12 @@ def test_review_fork_runs_under_background_review_origin(curator_env, monkeypatc
         "curator review fork did not set _memory_write_origin to "
         "'background_review' — the skill_manage background-review write "
         "guard would not fire (GH-47688 regression)"
+    )
+    assert captured.get("review_kind") == "curator_consolidation", (
+        "curator review fork did not set _skill_review_kind to "
+        "'curator_consolidation' — it would be wrongly caught by the "
+        "family-covenant gate meant only for the interval-nudged "
+        "skill-review fork (Studiosus heart Phase D reroute)"
     )
 
 

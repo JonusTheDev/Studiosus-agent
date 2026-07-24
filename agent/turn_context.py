@@ -132,6 +132,7 @@ def build_turn_context(
     summarize_user_message_for_log,
     set_session_context,
     set_current_write_origin,
+    set_current_review_kind,
     ra,
 ) -> TurnContext:
     """Run the once-per-turn setup and return the loop's input context.
@@ -156,6 +157,11 @@ def build_turn_context(
 
     # Bind the skill write-origin ContextVar for this thread.
     set_current_write_origin(getattr(agent, "_memory_write_origin", "assistant_tool"))
+    # Bind which autonomous fork (if any) is running — independent of the
+    # write-origin above, so it can gate the family covenant (Phase D) on
+    # the skill-review fork specifically without touching write_approval.py's
+    # origin-based gate (see tools/skill_provenance.py).
+    set_current_review_kind(getattr(agent, "_skill_review_kind", None))
 
     # Restore the primary runtime if the previous turn activated fallback.
     agent._restore_primary_runtime()
@@ -573,6 +579,76 @@ def build_turn_context(
             plugin_user_context = "\n\n".join(_ctx_parts)
     except Exception as exc:
         logger.warning("pre_llm_call hook failed: %s", exc)
+
+    # ASSEMBLE — lay the lessons and earned skills this task resembles beside
+    # the work.
+    #
+    # Appended to the user-message context, never the system prompt: what the
+    # agent learned yesterday must not invalidate today's cached prefix. A
+    # served lesson or skill is reinforced here rather than at write time,
+    # because what earns its keep is being *used*, not being written — and the
+    # served-skill ids land on the episode's assemble event, which is the whole
+    # basis of the serve→outcome correlation report.
+    agent._served_lesson_ids = []
+    agent._served_skill_ids = []
+    try:
+        from agent import chronicle as _chronicle
+        if _chronicle.chronicle_enabled():
+            _task_text = (original_user_message
+                          if isinstance(original_user_message, str) else "")
+            _lessons = _chronicle.retrieve(_task_text)
+            _skills = []
+            try:
+                from agent import earned_skills as _earned
+                _skills = _earned.retrieve(_task_text)
+            except Exception as exc:
+                logger.warning("earned-skills retrieval failed: %s", exc)
+            _certs = []
+            try:
+                from agent import wall as _wall
+                _certs = _wall.retrieve(_task_text)
+            except Exception as exc:
+                logger.warning("wall retrieval failed: %s", exc)
+            _blocks = []
+            if _lessons:
+                _blocks.append(_chronicle.render(_lessons))
+                agent._served_lesson_ids = [lesson["id"] for lesson in _lessons]
+                _chronicle.reinforce(agent._served_lesson_ids)
+            if _skills:
+                _blocks.append(_earned.render(_skills))
+                agent._served_skill_ids = [skill["id"] for skill in _skills]
+                _earned.reinforce(agent._served_skill_ids)
+            if _certs:
+                # A confidence signal, not a playbook: never reinforced,
+                # never judged twice.
+                _blocks.append(_wall.render(_certs))
+            if _blocks:
+                _block = "\n\n".join(_blocks)
+                plugin_user_context = (
+                    f"{plugin_user_context}\n\n{_block}" if plugin_user_context
+                    else _block
+                )
+                logger.info("chronicle: served %d lesson(s), %d skill(s), "
+                            "%d certificate(s)",
+                            len(_lessons), len(_skills), len(_certs))
+    except Exception as exc:
+        logger.warning("chronicle retrieval failed: %s", exc)
+
+    # The spirit: where the agent is, and how its heart sits — computed by
+    # the harness, heard as words. Per-turn and therefore laid in the
+    # user-message context, never the system prompt. Carries no learning
+    # weight; with HERMES_SPIRIT off this whole block is a single cheap check.
+    try:
+        from agent import spirit as _spirit
+        if _spirit.spirit_enabled():
+            _spirit.arrive("workshop")  # the labor of a turn begins
+            _whisper = _spirit.whisper()
+            plugin_user_context = (
+                f"{plugin_user_context}\n\n{_whisper}" if plugin_user_context
+                else _whisper
+            )
+    except Exception as exc:
+        logger.warning("spirit whisper failed: %s", exc)
 
     # Per-turn file-mutation verifier state.
     agent._turn_failed_file_mutations = {}

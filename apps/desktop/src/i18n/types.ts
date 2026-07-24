@@ -1402,6 +1402,35 @@ export interface Translations {
     }
   }
 
+  modelDetails: {
+    title: string
+    active: string
+    use: string
+    expand: string
+    collapse: string
+    ctx: string
+    throughputAt64k: string
+    operatingCtx: string
+    fitsGpu: string
+    spillsGpu: string
+    notBenched: string
+    live: string
+    liveHint: string
+    diverges: string
+    divergesHint: string
+    prefill: string
+    gpu: string
+    load: string
+    benched: string
+    noModels: string
+    unreachable: string
+    noModel: string
+    loaded: string
+    notLoaded: string
+    pinned: string
+    onGpu: string
+    running: string
+  }
   composer: {
     message: string
     wakingProfile: (profile: string) => string

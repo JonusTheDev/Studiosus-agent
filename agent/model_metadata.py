@@ -191,7 +191,27 @@ DEFAULT_FALLBACK_CONTEXT = CONTEXT_PROBE_TIERS[0]
 # Minimum context length required to run Hermes Agent.  Models with fewer
 # tokens cannot maintain enough working memory for tool-calling workflows.
 # Sessions, model switches, and cron jobs should reject models below this.
-MINIMUM_CONTEXT_LENGTH = 64_000
+#
+# Lowered from 64K to 32K so capable local models are not turned away for a
+# window they can actually work in.  A 24 GB MoE on a 16 GB card is faster and
+# prefills nearly twice as quickly at 32K than at 64K (measured — see
+# ``dyno_profiles/``), and refusing that setup bought reliability we were not
+# actually losing.
+MINIMUM_CONTEXT_LENGTH = 32_000
+
+# The premature-compaction floor: never trigger auto-compression below this
+# many tokens, however small the configured percentage.
+#
+# This is NOT the same idea as MINIMUM_CONTEXT_LENGTH, though the two shared a
+# constant until the floor was lowered.  MINIMUM_CONTEXT_LENGTH is a *gate* —
+# the smallest window Hermes will accept.  This is a *comfort floor* — the
+# point below which compacting a large-window model just wastes context it
+# already has.  Lowering the gate must not drag the floor down with it: at a
+# 32K floor, a 64K model would compact at 50% of its window instead of riding
+# to 85% via the degenerate-window guard in
+# ``ContextCompressor._compute_threshold_tokens`` (#14690), throwing away half
+# its usable context for nothing.
+COMPRESSION_FLOOR_TOKENS = 64_000
 
 # Short-lived in-process cache for local-server context probes. Bounds the
 # probe rate when the new local-endpoint live-probe paths (reconcile-on-hit +
@@ -578,7 +598,7 @@ def _maybe_cache_local_context_length(
 ) -> None:
     """Persist a locally probed context length only when it meets Hermes minimum.
 
-    Sub-minimum live windows (e.g. vLLM ``--max-model-len 32768``) are still
+    Sub-minimum live windows (e.g. vLLM ``--max-model-len 16384``) are still
     returned to callers so ``agent_init`` can fail with the existing
     minimum-context guidance — they must not be normalized into the on-disk cache
     as if they were valid operating limits.
@@ -602,7 +622,7 @@ def _reconcile_local_cached_context_length(
 
     Live probes below :data:`MINIMUM_CONTEXT_LENGTH` invalidate stale cache
     entries but are not persisted — startup should reject them, not bless a
-    sub-64K window as config.
+    sub-minimum window as config.
     """
     live_ctx = _query_local_context_length(model, base_url, api_key=api_key)
     if live_ctx and live_ctx > 0 and live_ctx != cached:

@@ -5657,6 +5657,40 @@ def get_model_info(profile: Optional[str] = None):
         return dict(_EMPTY_MODEL_INFO)
 
 
+@app.get("/api/model/dyno")
+def get_model_dyno(profile: Optional[str] = None, model: Optional[str] = None):
+    """Dyno KPI report for the desktop model-details rail.
+
+    Per local Ollama model: bench KPIs (throughput at 64k, recommended/operating
+    context, GPU fit), the full power curve for the expandable row, auto-derived
+    specialties, live observed-throughput history, and running-process status.
+    ``model`` is the session's active model (drives the running-process header);
+    when omitted the header is left null. An unreachable Ollama server yields an
+    empty model list, not a 500 — an honest empty hand.
+    """
+    try:
+        from agent.dyno_report import build_model_report
+
+        resolved_model = model
+        with _profile_scope(profile):
+            if not resolved_model:
+                # Fall back to the configured main model when the caller didn't
+                # name one, so the running-process header still resolves.
+                try:
+                    _cfg = load_config()
+                    _mc = _cfg.get("model", "")
+                    resolved_model = (
+                        _mc.get("default", _mc.get("name", ""))
+                        if isinstance(_mc, dict) else str(_mc or "")
+                    ) or None
+                except Exception:
+                    resolved_model = None
+            return build_model_report(current_model=resolved_model)
+    except Exception:
+        _log.exception("GET /api/model/dyno failed")
+        raise HTTPException(status_code=500, detail="Failed to build Dyno report")
+
+
 # ---------------------------------------------------------------------------
 # Model assignment — pick provider+model for main slot or auxiliary slots.
 # Mirrors the model.options JSON-RPC from tui_gateway but uses REST so the

@@ -26,6 +26,22 @@ reviewing any change:
   high. Most new capability should arrive as a CLI command + skill, a
   service-gated tool, or a plugin — not as core surface.
 
+## This fork: the Studiosus heart
+
+This fork carries a learning layer grafted onto the Hermes body — the Soul
+(episodic ledger), the Chronicle (reflected lessons, served back by
+situation), earned skills under a family covenant, and a spirit (voice,
+wall, world). All of it is behind default-off flags (`HERMES_SOUL`,
+`HERMES_CHRONICLE`, `HERMES_FLAME`, `HERMES_SPIRIT`, `HERMES_VOICE`); with
+them unset, upstream Hermes behavior is unchanged. Before touching
+`agent/soul.py`, `agent/chronicle.py`, `agent/earned_skills.py`,
+`agent/dyno.py`, `agent/flame.py`, `agent/voice.py`, `agent/wall.py`,
+`agent/spirit.py`, or their seams in `agent/turn_context.py` /
+`agent/turn_finalizer.py` / `agent/system_prompt.py`, read
+**[docs/studiosus-heart.md](docs/studiosus-heart.md)** — the as-built map of
+where every thread weaves, and the covenants each module enforces. The
+strategy behind it is `.plans/studiosus-heart-strategy.md`.
+
 ## Contribution Rubric — What We Want / What We Don't
 
 This is the project's intent layer. Use it two ways:

@@ -48,6 +48,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH
 } from '@/store/layout'
+import { $modelDetailsOpen, closeModelDetails, MODEL_DETAILS_PANE_ID } from '@/store/model-details'
 import { $filePreviewTarget, $previewTarget, closeRightRail } from '@/store/preview'
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $currentCwd, $selectedStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
@@ -64,7 +65,7 @@ import {
 import { $terminalTakeover, setTerminalTakeover } from '../right-sidebar/store'
 import { $workspaceIsPage } from '../routes'
 
-import { FilesPane, LogsPane, PreviewRailPane, ReviewPaneContent } from './panes'
+import { FilesPane, LogsPane, ModelDetailsPaneContent, PreviewRailPane, ReviewPaneContent } from './panes'
 import { ContribWiring, WiredPane } from './wiring'
 
 /**
@@ -216,6 +217,24 @@ registry.registerMany([
       maxWidth: FILE_BROWSER_MAX_WIDTH
     },
     render: () => <ReviewPaneContent />
+  },
+  {
+    id: 'model-details',
+    area: 'panes',
+    title: 'model details',
+    // A right rail like review: hidden until the composer gear toggles
+    // $modelDetailsOpen. Not workspace-gated — it is about models, not the
+    // project — so it can open in a detached chat. Wider default than the file
+    // rail: it holds a multi-column KPI table.
+    data: {
+      placement: 'right',
+      collapsible: true,
+      revealAliases: [MODEL_DETAILS_PANE_ID],
+      width: 'clamp(20rem, 34vw, 30rem)',
+      minWidth: '16rem',
+      maxWidth: '34rem'
+    },
+    render: () => <ModelDetailsPaneContent />
   },
   {
     // Optional chrome — in NO default layout. Adoption stacks it with the
@@ -524,6 +543,9 @@ bindPaneVisibility(
   computed([$reviewOpen, $hasWorkspace], (open, workspace) => open && workspace),
   closeReview
 )
+// The model-details rail — toggled from the composer gear. NOT workspace-gated:
+// choosing a model by its Dyno KPIs is meaningful even in a detached chat.
+bindPaneVisibility('model-details', $modelDetailsOpen, closeModelDetails)
 // ⌃` / statusbar toggle — the terminal COLLAPSES to a rail (tab stays), not
 // hides; PTYs stay alive while collapsed (see PersistentTerminal).
 bindPaneCollapse(

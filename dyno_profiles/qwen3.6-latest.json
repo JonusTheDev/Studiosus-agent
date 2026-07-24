@@ -1,0 +1,55 @@
+{
+  "model": "qwen3.6:latest",
+  "chosen_num_ctx": 65536,
+  "chosen_because": "The bench recommends 32768 (50.4 vs 32.7 tok/s), but the two ranges overlap and the cost of 64K is mostly prefill - paid once per turn - while the room to think is paid back every turn. Chosen deliberately over the recommendation; the curve below is unedited.",
+  "power": {
+    "dyno_version": 1,
+    "date": "2026-07-18",
+    "host": "http://127.0.0.1:11434",
+    "gpu": {
+      "name": "NVIDIA GeForce RTX 5070 Ti",
+      "vram_gb": 15.9
+    },
+    "server_env": {
+      "ollama_version": "0.30.8",
+      "env": {
+        "OLLAMA_CONTEXT_LENGTH": "65536",
+        "OLLAMA_FLASH_ATTENTION": "1",
+        "LLAMA_ARG_FIT_TARGET": "128"
+      }
+    },
+    "min_gpu_frac": 0.9,
+    "warmup_rolls": 1,
+    "curve": [
+      {
+        "num_ctx": 32768,
+        "resident_gb": 22.73,
+        "gpu_frac": 0.643,
+        "tok_s": 50.4,
+        "prompt_tok_s": 92.3,
+        "load_s": 35.0,
+        "rolls": 4,
+        "tok_s_min": 41.2,
+        "tok_s_max": 54.3
+      },
+      {
+        "num_ctx": 65536,
+        "resident_gb": 23.43,
+        "gpu_frac": 0.623,
+        "tok_s": 32.7,
+        "prompt_tok_s": 54.4,
+        "load_s": 39.1,
+        "rolls": 4,
+        "tok_s_min": 25.5,
+        "tok_s_max": 45.8
+      }
+    ],
+    "recommended_num_ctx": 32768,
+    "recommended_tok_s": 50.4,
+    "recommended_in_band": false,
+    "recommended_within_noise_of": [
+      65536
+    ],
+    "fully_fits": false
+  }
+}

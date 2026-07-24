@@ -13,7 +13,7 @@ import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
 
 export interface NodeMenuTarget {
   id: string
-  kind: 'memory' | 'skill'
+  kind: 'lesson' | 'memory' | 'skill'
   label: string
   x: number
   y: number
@@ -53,7 +53,10 @@ export function NodeContextMenu({ onClose, onNodeRemoved, target }: NodeContextM
     setError(null)
   })
 
-  const noun = target?.kind === 'memory' ? 'memory' : 'skill'
+  const noun = target?.kind === 'memory' ? 'memory' : target?.kind === 'lesson' ? 'lesson' : 'skill'
+  // Lessons are earned, not authored: the star map may read them, never
+  // rewrite or delete them. Consolidation is the only door out.
+  const readOnly = target?.kind === 'lesson'
 
   const openEdit = async () => {
     if (!target) {
@@ -125,18 +128,20 @@ export function NodeContextMenu({ onClose, onNodeRemoved, target }: NodeContextM
               onClick={() => void openEdit()}
               type="button"
             >
-              Edit {noun}…
+              {readOnly ? `View ${noun}…` : `Edit ${noun}…`}
             </button>
-            <button
-              className="block w-full cursor-pointer rounded-md px-2 py-1 text-left text-xs text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                setDeleting({ id: target.id, kind: target.kind, label: target.label })
-                onClose()
-              }}
-              type="button"
-            >
-              {target.kind === 'skill' ? 'Archive skill' : 'Delete memory'}
-            </button>
+            {readOnly ? null : (
+              <button
+                className="block w-full cursor-pointer rounded-md px-2 py-1 text-left text-xs text-destructive hover:bg-destructive/10"
+                onClick={() => {
+                  setDeleting({ id: target.id, kind: target.kind, label: target.label })
+                  onClose()
+                }}
+                type="button"
+              >
+                {target.kind === 'skill' ? 'Archive skill' : 'Delete memory'}
+              </button>
+            )}
           </div>
         </>
       ) : null}
@@ -144,29 +149,36 @@ export function NodeContextMenu({ onClose, onNodeRemoved, target }: NodeContextM
       <Dialog onOpenChange={value => !value && !saving && setEditing(null)} open={Boolean(editing)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Edit {editing?.label}</DialogTitle>
+            <DialogTitle>{editing?.id.startsWith('lesson:') ? editing.label : `Edit ${editing?.label}`}</DialogTitle>
           </DialogHeader>
           <div className="h-80">
-            {editing && (
-              <CodeEditor
-                filePath={noun === 'skill' ? 'SKILL.md' : 'memory.md'}
-                framed
-                initialValue={editing.content}
-                key={editing.id}
-                onCancel={() => !saving && setEditing(null)}
-                onChange={content => setEditing(prev => (prev ? { ...prev, content } : prev))}
-                onSave={() => void save()}
-              />
-            )}
+            {editing &&
+              (editing.id.startsWith('lesson:') ? (
+                <div className="h-full overflow-auto rounded-md border border-(--ui-stroke-secondary) p-3 text-sm whitespace-pre-wrap">
+                  {editing.content}
+                </div>
+              ) : (
+                <CodeEditor
+                  filePath={noun === 'skill' ? 'SKILL.md' : 'memory.md'}
+                  framed
+                  initialValue={editing.content}
+                  key={editing.id}
+                  onCancel={() => !saving && setEditing(null)}
+                  onChange={content => setEditing(prev => (prev ? { ...prev, content } : prev))}
+                  onSave={() => void save()}
+                />
+              ))}
           </div>
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <DialogFooter>
             <Button disabled={saving} onClick={() => setEditing(null)} type="button" variant="ghost">
-              Cancel
+              {editing?.id.startsWith('lesson:') ? 'Close' : 'Cancel'}
             </Button>
-            <Button disabled={saving} onClick={() => void save()}>
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
+            {editing?.id.startsWith('lesson:') ? null : (
+              <Button disabled={saving} onClick={() => void save()}>
+                {saving ? 'Saving…' : 'Save'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

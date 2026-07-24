@@ -497,6 +497,30 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                         middleware_trace=list(middleware_trace),
                     )
 
+            # ── Tool-severity gate (opt-in) — severe-tier tools ask for
+            # confirmation via the shared approval gate. No-op unless enabled;
+            # skips self-gated tools (terminal/execute_code/process). ──
+            if block_result is None:
+                from tools.terminal_tool import _get_approval_callback
+                _severity_block = agent._tool_severity_gate(
+                    function_name,
+                    approval_callback=_get_approval_callback(),
+                )
+                if _severity_block is not None:
+                    block_result = _severity_block
+                    _emit_terminal_post_tool_call(
+                        agent,
+                        function_name=function_name,
+                        function_args=function_args,
+                        result=block_result,
+                        effective_task_id=effective_task_id,
+                        tool_call_id=getattr(tool_call, "id", "") or "",
+                        status="blocked",
+                        error_type="severity_block",
+                        error_message="Tool blocked by severity gate (not approved)",
+                        middleware_trace=list(middleware_trace),
+                    )
+
         # ── Checkpoint preflight (only for tools that will execute) ──
         if block_result is None:
             # Checkpoint for file-mutating tools
@@ -1134,7 +1158,22 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             if not guardrail_decision.allows_execution:
                 _guardrail_block_decision = guardrail_decision
 
-        _execution_blocked = _block_msg is not None or _guardrail_block_decision is not None
+        # Tool-severity gate (opt-in): a severe-tier tool asks for confirmation
+        # via the shared approval gate. No-op unless enabled; skips self-gated
+        # tools (terminal/execute_code/process). Only when nothing else blocked.
+        _severity_block_result: Optional[str] = None
+        if _block_msg is None and _guardrail_block_decision is None:
+            from tools.terminal_tool import _get_approval_callback
+            _severity_block_result = agent._tool_severity_gate(
+                function_name,
+                approval_callback=_get_approval_callback(),
+            )
+
+        _execution_blocked = (
+            _block_msg is not None
+            or _guardrail_block_decision is not None
+            or _severity_block_result is not None
+        )
 
         if _execution_blocked:
             # Tool blocked by plugin or guardrail policy — skip counters,
@@ -1242,6 +1281,23 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 status="blocked",
                 error_type="guardrail_block",
                 error_message=getattr(_guardrail_block_decision, "message", None) or "Tool blocked by guardrail policy",
+                middleware_trace=list(middleware_trace),
+            )
+        elif _severity_block_result is not None:
+            # Tool not approved by the severity gate — return the refusal
+            # without executing, exactly one result for the tool_call_id.
+            function_result = _severity_block_result
+            tool_duration = 0.0
+            _emit_terminal_post_tool_call(
+                agent,
+                function_name=function_name,
+                function_args=function_args,
+                result=function_result,
+                effective_task_id=effective_task_id,
+                tool_call_id=getattr(tool_call, "id", "") or "",
+                status="blocked",
+                error_type="severity_block",
+                error_message="Tool blocked by severity gate (not approved)",
                 middleware_trace=list(middleware_trace),
             )
         elif function_name == "todo":

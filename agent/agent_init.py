@@ -1934,7 +1934,7 @@ def init_agent(
     agent.codex_app_server_auto_compaction = codex_app_server_auto_compaction
 
     # Reject models whose context window is below the minimum required
-    # for reliable tool-calling workflows (64K tokens).
+    # for reliable tool-calling workflows.
     _ctx = getattr(agent.context_compressor, "context_length", 0)
     if _ctx and _ctx < MINIMUM_CONTEXT_LENGTH:
         raise ValueError(
@@ -2076,6 +2076,57 @@ def init_agent(
             agent._ollama_num_ctx = int(_ollama_num_ctx_override)
         except (TypeError, ValueError):
             _ra().logger.debug("Invalid ollama_num_ctx config value: %r", _ollama_num_ctx_override)
+    # Tend the local flame before anything asks it to work: release models
+    # competing for the card and load the intended one at the context its dyno
+    # profile settled on.  Off unless HERMES_FLAME is set — releasing another
+    # process's resident models is a real side effect and must be asked for.
+    # Never fatal: a cold flame is a slow turn, not a failed startup.
+    if agent.base_url and is_local_endpoint(agent.base_url):
+        try:
+            from agent.flame import (
+                describe as _flame_describe,
+                ensure_ready as _flame_ensure,
+                flame_enabled as _flame_enabled,
+                host_from_base_url as _flame_host,
+            )
+            if _flame_enabled():
+                _flame_report = _flame_ensure(
+                    agent.model,
+                    host=_flame_host(agent.base_url),
+                    clear_conflicts=True,
+                )
+                for _action in _flame_report.get("actions", []):
+                    _ra().logger.info("flame: %s", _action)
+                _ra().logger.info("%s", _flame_describe(_flame_report))
+        except Exception as exc:
+            _ra().logger.debug("flame tending failed: %s", exc)
+
+    # A measured dyno profile answers the same question ``model.context_length``
+    # does — how big a window this box can actually hold — but from the machine
+    # rather than from a hand-edited guess.  Prefer it over GGUF metadata, which
+    # advertises the model's *trained* maximum (256K for qwen3.6) and would have
+    # Ollama allocate all of it on a 16 GB card.  An explicit ollama_num_ctx in
+    # config.yaml still wins; this only fills the gap where detection would
+    # otherwise reach for the model card.
+    if (
+        agent._ollama_num_ctx is None
+        and _ollama_num_ctx_override is None
+        and agent.base_url
+        and is_local_endpoint(agent.base_url)
+    ):
+        try:
+            from agent.dyno import load_profile as _dyno_load
+            from agent.dyno import operating_num_ctx as _dyno_ctx
+            _measured_ctx = _dyno_ctx(_dyno_load(agent.model))
+            if _measured_ctx:
+                agent._ollama_num_ctx = _measured_ctx
+                _ra().logger.info(
+                    "Ollama num_ctx from dyno profile: %d (%s)",
+                    _measured_ctx, agent.model,
+                )
+        except Exception as exc:
+            _ra().logger.debug("dyno profile num_ctx lookup failed: %s", exc)
+
     if agent._ollama_num_ctx is None and agent.base_url and is_local_endpoint(agent.base_url):
         try:
             # ``agent.api_key`` may be a callable (Entra token provider).

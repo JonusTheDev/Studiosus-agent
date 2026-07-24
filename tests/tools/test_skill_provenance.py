@@ -93,3 +93,93 @@ def test_context_isolation_between_copies():
     assert inside == BACKGROUND_REVIEW
     # Parent context unaffected.
     assert get_current_write_origin() == original
+
+
+# ---------------------------------------------------------------------------
+# Review kind — independent of write origin (see module docstring in
+# skill_provenance.py for why this is a separate signal).
+# ---------------------------------------------------------------------------
+
+
+def test_review_kind_defaults_to_none():
+    from tools.skill_provenance import get_current_review_kind
+    assert get_current_review_kind() is None
+
+
+def test_set_and_get_review_kind():
+    from tools.skill_provenance import (
+        set_current_review_kind,
+        reset_current_review_kind,
+        get_current_review_kind,
+        REVIEW_KIND_SKILL,
+    )
+    token = set_current_review_kind(REVIEW_KIND_SKILL)
+    try:
+        assert get_current_review_kind() == REVIEW_KIND_SKILL
+    finally:
+        reset_current_review_kind(token)
+
+
+def test_reset_restores_prior_review_kind():
+    from tools.skill_provenance import (
+        set_current_review_kind,
+        reset_current_review_kind,
+        get_current_review_kind,
+        REVIEW_KIND_SKILL,
+        REVIEW_KIND_CURATOR,
+    )
+    outer = set_current_review_kind(REVIEW_KIND_CURATOR)
+    try:
+        inner = set_current_review_kind(REVIEW_KIND_SKILL)
+        try:
+            assert get_current_review_kind() == REVIEW_KIND_SKILL
+        finally:
+            reset_current_review_kind(inner)
+        assert get_current_review_kind() == REVIEW_KIND_CURATOR
+    finally:
+        reset_current_review_kind(outer)
+
+
+def test_is_family_covenant_scope_true_only_for_skill_review_fork():
+    from tools.skill_provenance import (
+        set_current_write_origin, reset_current_write_origin,
+        set_current_review_kind, reset_current_review_kind,
+        is_family_covenant_scope,
+        BACKGROUND_REVIEW, REVIEW_KIND_SKILL, REVIEW_KIND_CURATOR,
+    )
+    cases = [
+        ("foreground", None, False),
+        ("assistant_tool", None, False),
+        (BACKGROUND_REVIEW, None, False),  # origin set but no review kind bound
+        (BACKGROUND_REVIEW, REVIEW_KIND_CURATOR, False),
+        (BACKGROUND_REVIEW, REVIEW_KIND_SKILL, True),
+        ("foreground", REVIEW_KIND_SKILL, False),  # review kind alone isn't enough
+    ]
+    for origin, kind, expected in cases:
+        wo = set_current_write_origin(origin)
+        rk = set_current_review_kind(kind)
+        try:
+            assert is_family_covenant_scope() is expected, (
+                f"wrong for origin={origin!r} kind={kind!r}"
+            )
+        finally:
+            reset_current_review_kind(rk)
+            reset_current_write_origin(wo)
+
+
+def test_review_kind_context_isolation_between_copies():
+    from tools.skill_provenance import (
+        set_current_review_kind,
+        get_current_review_kind,
+        REVIEW_KIND_SKILL,
+    )
+    original = get_current_review_kind()
+
+    def _run_in_copy():
+        set_current_review_kind(REVIEW_KIND_SKILL)
+        return get_current_review_kind()
+
+    ctx = contextvars.copy_context()
+    inside = ctx.run(_run_in_copy)
+    assert inside == REVIEW_KIND_SKILL
+    assert get_current_review_kind() == original

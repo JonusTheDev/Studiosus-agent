@@ -32,6 +32,24 @@ Use any model you want — [Nous Portal](https://portal.nousresearch.com), OpenR
 
 ---
 
+## This fork: Studiosus Agent 🕊️
+
+This fork grafts the **Studiosus heart** — a disciplined learning layer —
+onto the Hermes body: an append-only episodic **Soul**, a **Chronicle** that
+reflects each sealed episode into situation-indexed lessons and serves them
+back beside resembling work, **skills earned only from repeated verified
+success**, a serve→outcome correlation report, and a spirit (a versioned
+voice, a wall of earned certificates, and the world of Intertextus). It also
+adds the **Dyno** (a power-curve bench that finds the best local-model
+context for *your* hardware) and the **Flame** (a startup tender for the
+local Ollama model). Everything is behind default-off flags; unset, this is
+upstream Hermes. On Windows, `Studiosus.bat` stands the whole stack up.
+
+- Where every thread weaves: [docs/studiosus-heart.md](docs/studiosus-heart.md)
+- Why it was built this way: [.plans/studiosus-heart-strategy.md](.plans/studiosus-heart-strategy.md)
+
+---
+
 ## Quick Install
 
 ### Linux, macOS, WSL2, Termux

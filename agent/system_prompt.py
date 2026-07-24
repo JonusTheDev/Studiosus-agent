@@ -181,17 +181,30 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # ── Stable tier ────────────────────────────────────────────────
     stable_parts: List[str] = []
 
+    # Voice hat (HERMES_VOICE): a versioned identity chosen once per session,
+    # so the stable prefix stays byte-identical across turns. Unset — the
+    # default — leaves Hermes' identity resolution exactly as it was.
+    _identity_loaded = False
+    try:
+        from agent.voice import selected_voice as _selected_voice
+        _voice = _selected_voice()
+        if _voice:
+            stable_parts.append(_voice["text"])
+            _identity_loaded = True
+    except Exception:
+        pass  # a broken hat must never cost a session its face
+
     # Try SOUL.md as primary identity unless the caller explicitly skipped it.
     # Some execution modes (cron) still want HERMES_HOME persona while keeping
     # cwd project instructions disabled.
-    _soul_loaded = False
-    if agent.load_soul_identity or not agent.skip_context_files:
+    if not _identity_loaded and (agent.load_soul_identity
+                                 or not agent.skip_context_files):
         _soul_content = _r.load_soul_md(_ctx_len)
         if _soul_content:
             stable_parts.append(_soul_content)
-            _soul_loaded = True
+            _identity_loaded = True
 
-    if not _soul_loaded:
+    if not _identity_loaded:
         # Fallback to hardcoded identity
         stable_parts.append(DEFAULT_AGENT_IDENTITY)
 
@@ -471,7 +484,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         # gateway daemons) self-spawns into the install tree, where the
         # fallback would inject this repo's contributor AGENTS.md (#64590).
         context_files_prompt = _r.build_context_files_prompt(
-            cwd=resolve_context_cwd(), skip_soul=_soul_loaded,
+            cwd=resolve_context_cwd(), skip_soul=_identity_loaded,
             context_length=_ctx_len,
             allow_install_tree_fallback=agent.platform in ("cli", "tui"))
         if context_files_prompt:

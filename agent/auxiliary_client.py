@@ -4093,8 +4093,12 @@ def _task_minimum_context_length(task: Optional[str]) -> Optional[int]:
     """Return the minimum context length required for an auxiliary task.
 
     Only ``compression`` carries an explicit minimum today (the same
-    ``MINIMUM_CONTEXT_LENGTH`` (64K) floor that
+    ``MINIMUM_CONTEXT_LENGTH`` gate that
     ``check_compression_model_feasibility`` already enforces at startup).
+    It tracks the gate rather than the compression comfort floor: a user
+    whose main model sits at the gate must still be able to get compression,
+    and a summariser held to a higher bar than the model it summarises would
+    lock them out of it entirely.
     Other tasks (``vision``, ``title_generation``, ``web_extract``,
     ``skills_hub``, ``mcp``, ``session_search``) return ``None`` — they
     have no per-task context floor and the runtime chain must remain

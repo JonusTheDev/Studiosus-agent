@@ -282,14 +282,14 @@ class TestCompress:
         )
 
     def test_threshold_below_window_at_minimum_ctx(self):
-        """Regression for #14690: at context_length == MINIMUM_CONTEXT_LENGTH
+        """Regression for #14690: at context_length == COMPRESSION_FLOOR_TOKENS
         the floored threshold used to equal the whole window, so
         auto-compression could never fire. It now triggers at 85% of the
         window — high enough not to waste the small budget, below 100% so it
         actually fires."""
-        from agent.context_compressor import MINIMUM_CONTEXT_LENGTH
-        t = ContextCompressor._compute_threshold_tokens(MINIMUM_CONTEXT_LENGTH, 0.50)
-        assert t < MINIMUM_CONTEXT_LENGTH
+        from agent.context_compressor import COMPRESSION_FLOOR_TOKENS
+        t = ContextCompressor._compute_threshold_tokens(COMPRESSION_FLOOR_TOKENS, 0.50)
+        assert t < COMPRESSION_FLOOR_TOKENS
         assert t == 54400  # 85% of 64000
 
     def test_threshold_below_window_for_small_ctx(self):
@@ -299,11 +299,11 @@ class TestCompress:
         assert t < 32000
 
     def test_threshold_floored_for_large_ctx(self):
-        from agent.context_compressor import MINIMUM_CONTEXT_LENGTH
+        from agent.context_compressor import COMPRESSION_FLOOR_TOKENS
         # 200K model at 50% = 100000 (above floor) — unchanged.
         assert ContextCompressor._compute_threshold_tokens(200000, 0.50) == 100000
-        # 100K model at 50% = 50000 (below floor) — floored to MINIMUM.
-        assert ContextCompressor._compute_threshold_tokens(100000, 0.50) == MINIMUM_CONTEXT_LENGTH
+        # 100K model at 50% = 50000 (below floor) — floored to the floor.
+        assert ContextCompressor._compute_threshold_tokens(100000, 0.50) == COMPRESSION_FLOOR_TOKENS
 
     def test_minimum_ctx_model_can_actually_compress(self):
         """End-to-end: a model at exactly the minimum context length must have

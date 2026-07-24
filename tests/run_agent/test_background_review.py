@@ -76,6 +76,43 @@ def test_background_review_shuts_down_memory_provider_before_close(monkeypatch):
     ]
 
 
+def test_background_review_fork_tags_skill_review_kind(monkeypatch):
+    """The interval-nudged skill-review fork must set _skill_review_kind to
+    "skill_review" (distinct from the Curator's own "curator_consolidation"
+    fork) so the family-covenant gate in skill_manager_tool.py applies to
+    this fork's native skill_manage(create=...) calls and not the Curator's
+    consolidation creates (Studiosus heart Phase D reroute)."""
+    captured = {}
+
+    class FakeReviewAgent:
+        def __init__(self, **kwargs):
+            self._session_messages = []
+
+        def run_conversation(self, **kwargs):
+            captured["write_origin"] = self._memory_write_origin
+            captured["review_kind"] = self._skill_review_kind
+
+        def shutdown_memory_provider(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run_agent_module, "AIAgent", FakeReviewAgent)
+    monkeypatch.setattr(run_agent_module.threading, "Thread", ImmediateThread)
+
+    agent = _bare_agent()
+
+    AIAgent._spawn_background_review(
+        agent,
+        messages_snapshot=[{"role": "user", "content": "hello"}],
+        review_skills=True,
+    )
+
+    assert captured.get("write_origin") == "background_review"
+    assert captured.get("review_kind") == "skill_review"
+
+
 def test_background_review_fork_opts_out_of_session_finalization(monkeypatch):
     """The review fork shares the parent's live session_id, so it must set
     ``_end_session_on_close = False``. Otherwise close() (now finalizing owned
